@@ -599,12 +599,19 @@ legend {
 }
 
 .radar-iframe-container iframe {
-    position: absolute;
     width: 100%;
-    /* Extra height to compensate for the hidden header offset */
-    height: calc(100% + 140px);
-    /* Shift up to hide the site header/nav (~130px tall on weather2day) */
-    top: -130px;
+    height: 100%;
     border: none;
     background: white;
+}
+
+/* Embed-specific iframes: fill container exactly, no clipping needed */
+.radar-iframe-embed {
+    padding: 0;
+}
+
+.radar-iframe-embed iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
 }
