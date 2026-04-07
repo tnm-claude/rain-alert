@@ -129,13 +129,14 @@ def fetch_radar_images():
 
         if success:
             print(f"[Scheduler] Successfully fetched radar image: {filename}")
-            # Cleanup old images
-            RadarService.cleanup_old_images()
         else:
             print("[Scheduler] No new radar images available")
 
     except Exception as e:
         print(f"[Scheduler] Error fetching radar images: {e}")
+    finally:
+        # Always cleanup old images, regardless of fetch outcome
+        RadarService.cleanup_old_images()
 
 
 def start_scheduler(app):
