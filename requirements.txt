@@ -1,18 +1,18 @@
 # Rain Alert - Minimal Dependencies
 
 # Web Framework
-Flask==3.0.0
-Flask-SQLAlchemy==3.1.1
+Flask>=3.1.0
+Flask-SQLAlchemy>=3.1.1
 
 # Database
-SQLAlchemy==2.0.23
+SQLAlchemy>=2.0.36
 
 # HTTP Requests (for weather API)
-requests==2.31.0
+requests>=2.31.0
 
 # Task Scheduling (background weather checks)
 APScheduler==3.10.4
 
 # Image Processing (for radar analysis)
-Pillow==10.1.0
-numpy==1.26.2
+Pillow>=11.0.0
+numpy>=2.0.0

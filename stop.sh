@@ -3,11 +3,11 @@
 
 echo "🛑 Stopping Rain Alert server..."
 
-# Find processes on port 5000
-PIDS=$(lsof -ti:5000)
+# Find processes on port 58101
+PIDS=$(lsof -ti:58101)
 
 if [ -z "$PIDS" ]; then
-    echo "ℹ️  No server running on port 5000"
+    echo "ℹ️  No server running on port 58101"
     exit 0
 fi
 
@@ -18,7 +18,7 @@ echo "$PIDS" | xargs kill -9 2>/dev/null
 sleep 1
 
 # Verify stopped
-if lsof -ti:5000 > /dev/null 2>&1; then
+if lsof -ti:58101 > /dev/null 2>&1; then
     echo "❌ Failed to stop server"
     exit 1
 else

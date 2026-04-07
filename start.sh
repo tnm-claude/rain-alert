@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Check if already running
-if lsof -ti:5000 > /dev/null 2>&1; then
-    echo "❌ Server is already running on port 5000"
+if lsof -ti:58101 > /dev/null 2>&1; then
+    echo "❌ Server is already running on port 58101"
     echo "   Use ./stop.sh to stop it first, or ./restart.sh to restart"
     exit 1
 fi
@@ -27,16 +27,16 @@ fi
 
 # Start server in background
 echo "🚀 Starting Rain Alert server..."
-nohup python run.py > rain-alert.log 2>&1 &
+nohup env FLASK_PORT=58101 python run.py > rain-alert.log 2>&1 &
 PID=$!
 
 # Wait for server to start
 sleep 4
 
 # Check if server started successfully
-if lsof -ti:5000 > /dev/null 2>&1; then
+if lsof -ti:58101 > /dev/null 2>&1; then
     echo "✅ Server started successfully (PID: $PID)"
-    echo "   URL: http://127.0.0.1:5000"
+    echo "   URL: http://127.0.0.1:58101"
     echo "   Log: tail -f rain-alert.log"
     echo ""
     echo "   To stop: ./stop.sh"
