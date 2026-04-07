@@ -1,0 +1,1050 @@
+{% extends "base.html" %}
+
+{% block title %}Rain Alert - Home{% endblock %}
+{% block window_title %}Rain Alert - Home{% endblock %}
+
+{% block menu %}
+<div class="menu-bar">
+    <div class="menu-item" id="menu-file">
+        File
+        <div class="menu-dropdown" id="menu-file-dropdown">
+            <div class="menu-dropdown-item" onclick="showAddLocationDialog(); closeMenus();">Add New Location</div>
+            <div class="menu-dropdown-item" onclick="showSettingsDialog(); closeMenus();">Settings</div>
+        </div>
+    </div>
+    <div class="menu-item" id="menu-view">
+        View
+        <div class="menu-dropdown" id="menu-view-dropdown">
+            <div class="menu-dropdown-item" onclick="window.location.href='/review'; closeMenus();">Alert Review</div>
+        </div>
+    </div>
+    <div class="menu-item" id="menu-help">
+        Help
+        <div class="menu-dropdown" id="menu-help-dropdown">
+            <div class="menu-dropdown-item" onclick="showInstructionsDialog(); closeMenus();">Instructions</div>
+            <div class="menu-dropdown-item" onclick="showAboutDialog(); closeMenus();">About</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Radar Viewer with Tabs -->
+<fieldset>
+    <legend>Rain Radar - Israel</legend>
+
+    <!-- Tab Headers -->
+    <div class="tab-container">
+        <div class="tab active" data-tab="rainviewer" onclick="switchRadarTab('rainviewer')">
+            RainViewer
+        </div>
+        <div class="tab" data-tab="weather2day-static" onclick="switchRadarTab('weather2day-static')">
+            Weather2day
+        </div>
+        <div class="tab" data-tab="weather2day-google" onclick="switchRadarTab('weather2day-google')">
+            Weather2day (Google Maps)
+        </div>
+        <div class="tab-settings">
+            <span id="default-tab-indicator" style="margin-right: 8px;">Default: RainViewer</span>
+            <button class="button" onclick="setDefaultTab()" title="Set current tab as default">Set Default</button>
+        </div>
+    </div>
+
+    <!-- Tab Content: RainViewer -->
+    <div id="tab-rainviewer" class="tab-content active">
+        <small style="font-weight: normal; font-size: 11px; color: #666; display: block; margin: 8px 0 12px 0;">
+            Data: <a href="https://www.rainviewer.com/" target="_blank" style="color: #00f;">RainViewer</a>
+        </small>
+        <div id="radar-viewer">
+            <div id="radar-map" style="width: 100%; height: 600px; background: #e0e0e0; position: relative;"></div>
+            <div id="radar-timestamp" style="margin-top: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 8px 12px; font-weight: bold; font-size: 14px; text-align: center;"></div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button class="button" id="radar-play-pause">▶ Play</button>
+                <button class="button" id="radar-prev">◀ Prev</button>
+                <button class="button" id="radar-next">Next ▶</button>
+                <label style="display: flex; align-items: center; gap: 4px;">
+                    <span>Speed:</span>
+                    <select id="radar-speed" class="button" style="padding: 4px 8px; background: white;">
+                        <option value="2000">Slow</option>
+                        <option value="1000" selected>Normal</option>
+                        <option value="500">Fast</option>
+                    </select>
+                </label>
+                <input type="range" id="radar-slider" min="0" max="0" value="0" style="flex: 1; min-width: 200px;">
+                <span id="radar-index" style="color: #666; font-size: 12px;">0/0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Content: Weather2day Static/Animated -->
+    <div id="tab-weather2day-static" class="tab-content">
+        <small style="font-weight: normal; font-size: 11px; color: #666; display: block; margin: 8px 0 12px 0;">
+            Data: <a href="https://www.weather2day.co.il/" target="_blank" style="color: #00f;">Weather2day.co.il</a> - Animated radar with play controls
+        </small>
+        <div class="radar-iframe-container">
+            <iframe src="https://www.weather2day.co.il/%D7%9E%D7%9B%D7%9D-%D7%92%D7%A9%D7%9D" title="Weather2day Rain Radar"></iframe>
+        </div>
+    </div>
+
+    <!-- Tab Content: Weather2day Google Maps -->
+    <div id="tab-weather2day-google" class="tab-content">
+        <small style="font-weight: normal; font-size: 11px; color: #666; display: block; margin: 8px 0 12px 0;">
+            Data: <a href="https://www.weather2day.co.il/" target="_blank" style="color: #00f;">Weather2day.co.il</a> - Interactive Google Maps radar
+        </small>
+        <div class="radar-iframe-container">
+            <iframe src="https://www.weather2day.co.il/rain-radar-google#radar" title="Weather2day Google Maps Radar"></iframe>
+        </div>
+    </div>
+</fieldset>
+
+<!-- OpenLayers CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
+
+<fieldset>
+    <legend>Active Alerts</legend>
+    {% if alerts %}
+        <ul class="alert-list">
+            {% for alert in alerts %}
+            <li class="alert-item{% if alert.is_slack_dismissed() %} alert-slack-dismissed{% endif %}{% if alert.user_feedback == True %} alert-true{% elif alert.user_feedback == False %} alert-false{% endif %}">
+                <div style="flex: 1;">
+                    <div class="message">{{ alert.message }}</div>
+                    <div style="font-size: 11px; color: #666; margin-top: 4px;">
+                        Triggered: {{ alert.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% if alert.is_slack_dismissed() %}
+                            <span style="color: #0066cc; font-weight: bold;">(Snoozed until {{ alert.slack_dismissed_until.strftime('%H:%M:%S') if alert.slack_dismissed_until else 'N/A' }})</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="alert-actions" style="display: flex; gap: 8px; align-items: center;">
+                    {% if alert.user_feedback is none %}
+                        <button class="button button-success" onclick="markAlert({{ alert.id }}, true)" style="min-width: 70px;">✓ True</button>
+                        <button class="button button-danger" onclick="markAlert({{ alert.id }}, false)" style="min-width: 70px;">✗ False</button>
+                        <button class="button" onclick="dismissAlert({{ alert.id }})" style="min-width: 70px;">Dismiss</button>
+                    {% else %}
+                        <span style="color: #666; font-size: 11px;">
+                            {% if alert.user_feedback %}
+                                ✓ Marked as accurate
+                            {% else %}
+                                ✗ Marked as false alarm
+                            {% endif %}
+                        </span>
+                        <button class="button" onclick="dismissAlert({{ alert.id }})" style="min-width: 70px;">Dismiss</button>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="empty-state">No active alerts</div>
+    {% endif %}
+</fieldset>
+
+<fieldset class="mt-2">
+    <legend>Monitored Locations</legend>
+    {% if locations %}
+        <ul class="location-list">
+            {% for location in locations %}
+            <li class="location-item">
+                <div>
+                    <strong>{{ location.address }}</strong><br>
+                    <small style="color: #666;">{{ "%.4f"|format(location.latitude) }}, {{ "%.4f"|format(location.longitude) }}</small>
+                </div>
+                <div class="location-controls">
+                    <button class="button-small button-main{% if location.is_main %} active{% endif %}"
+                            onclick="setMainLocation({{ location.id }})"
+                            title="{% if location.is_main %}Main location{% else %}Set as main location{% endif %}">
+                        🏠
+                    </button>
+                    <button class="button-small button-danger"
+                            onclick="removeLocation({{ location.id }})"
+                            title="Remove location">
+                        ✕
+                    </button>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="empty-state">No monitored locations yet</div>
+    {% endif %}
+</fieldset>
+
+
+<!-- Add Location Dialog -->
+<div id="add-location-modal" class="modal">
+    <div class="modal-dialog" style="width: 400px;">
+        <div class="modal-title-bar">
+            <div class="modal-title-text">Add New Location</div>
+        </div>
+        <div class="modal-body" style="padding: 16px;">
+            <form id="add-location-form">
+                <div class="form-group">
+                    <label for="address">Address:</label>
+                    <input type="text" id="address" name="address" placeholder="e.g., Tel Aviv, Israel" required style="width: 100%; padding: 4px; font-family: 'MS Sans Serif', sans-serif;">
+                    <small style="color: #666; display: block; margin-top: 4px;">
+                        Enter a city, street address, or landmark
+                    </small>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="add-location-submit-btn">Add Location</button>
+            <button class="button" id="add-location-cancel-btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Dialog -->
+<div id="settings-modal" class="modal">
+    <div class="modal-dialog" style="width: 600px; max-height: 80vh; overflow-y: auto;">
+        <div class="modal-title-bar">
+            <div class="modal-title-text">Notification Settings</div>
+        </div>
+        <div class="modal-body" style="padding: 16px; display: block;">
+            <form id="settings-form">
+                <!-- Slack Settings -->
+                <fieldset style="margin-bottom: 12px;">
+                    <legend>
+                        <label>
+                            <input type="checkbox" id="slack_enabled" name="slack_enabled">
+                            Slack Notifications
+                        </label>
+                    </legend>
+                    <div class="form-group">
+                        <label for="slack_webhook_url">Webhook URL:</label>
+                        <input type="text" id="slack_webhook_url" name="slack_webhook_url" placeholder="https://hooks.slack.com/services/..." style="width: 100%; padding: 4px; font-family: inherit;">
+                        <small style="color: #666; display: block; margin-top: 4px;">
+                            Get webhook URL from Slack: Workspace Settings → Apps → Incoming Webhooks
+                        </small>
+                    </div>
+                </fieldset>
+
+                <!-- Telegram Settings -->
+                <fieldset style="margin-bottom: 12px;">
+                    <legend>
+                        <label>
+                            <input type="checkbox" id="telegram_enabled" name="telegram_enabled">
+                            Telegram Notifications
+                        </label>
+                    </legend>
+                    <div class="form-group">
+                        <label for="telegram_bot_token">Bot Token:</label>
+                        <input type="text" id="telegram_bot_token" name="telegram_bot_token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" style="width: 100%; padding: 4px; font-family: inherit;">
+                    </div>
+                    <div class="form-group">
+                        <label for="telegram_chat_id">Chat ID:</label>
+                        <input type="text" id="telegram_chat_id" name="telegram_chat_id" placeholder="123456789" style="width: 100%; padding: 4px; font-family: inherit;">
+                        <small style="color: #666; display: block; margin-top: 4px;">
+                            Create bot with @BotFather, get chat ID from @userinfobot
+                        </small>
+                    </div>
+                </fieldset>
+
+                <!-- Email Settings -->
+                <fieldset style="margin-bottom: 12px;">
+                    <legend>
+                        <label>
+                            <input type="checkbox" id="email_enabled" name="email_enabled">
+                            Email Notifications
+                        </label>
+                    </legend>
+                    <div class="form-group">
+                        <label for="email_address">Recipient Email:</label>
+                        <input type="email" id="email_address" name="email_address" placeholder="your@email.com" style="width: 100%; padding: 4px; font-family: inherit;">
+                    </div>
+                    <div class="form-group">
+                        <label for="email_smtp_server">SMTP Server:</label>
+                        <input type="text" id="email_smtp_server" name="email_smtp_server" placeholder="smtp.gmail.com" style="width: 100%; padding: 4px; font-family: inherit;">
+                    </div>
+                    <div class="form-group">
+                        <label for="email_smtp_port">SMTP Port:</label>
+                        <input type="number" id="email_smtp_port" name="email_smtp_port" value="587" style="width: 100%; padding: 4px; font-family: inherit;">
+                    </div>
+                    <div class="form-group">
+                        <label for="email_smtp_user">SMTP Username:</label>
+                        <input type="text" id="email_smtp_user" name="email_smtp_user" placeholder="your@email.com" style="width: 100%; padding: 4px; font-family: inherit;">
+                    </div>
+                    <div class="form-group">
+                        <label for="email_smtp_password">SMTP Password:</label>
+                        <input type="password" id="email_smtp_password" name="email_smtp_password" placeholder="App password" style="width: 100%; padding: 4px; font-family: inherit;">
+                        <small style="color: #666; display: block; margin-top: 4px;">
+                            Gmail: Use App Password from Google Account settings
+                        </small>
+                    </div>
+                </fieldset>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="settings-test-btn">Test Notifications</button>
+            <button class="button" id="settings-submit-btn">Save Settings</button>
+            <button class="button" id="settings-cancel-btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Instructions Dialog -->
+<div id="instructions-modal" class="modal">
+    <div class="modal-dialog" style="width: 500px;">
+        <div class="modal-title-bar">
+            <div class="modal-title-text">Instructions</div>
+        </div>
+        <div class="modal-body" style="padding: 16px; display: block; text-align: left;">
+            <h3 style="margin: 0 0 12px 0;">How to Use Rain Alert</h3>
+
+            <p style="margin-bottom: 12px;"><strong>Adding Locations:</strong></p>
+            <ul style="margin: 0 0 12px 20px;">
+                <li>Click "File" → "Add New Location"</li>
+                <li>Enter any address, city, or landmark</li>
+                <li>The system will geocode it automatically</li>
+            </ul>
+
+            <p style="margin-bottom: 12px;"><strong>Configuring Notifications:</strong></p>
+            <ul style="margin: 0 0 12px 20px;">
+                <li>Click "File" → "Settings"</li>
+                <li>Enable Slack, Telegram, or Email</li>
+                <li>Enter your webhook/token details</li>
+                <li>Click "Test Notifications" to verify</li>
+            </ul>
+
+            <p style="margin-bottom: 12px;"><strong>Understanding Alerts:</strong></p>
+            <ul style="margin: 0 0 12px 20px;">
+                <li>Red alerts = Active rain detected or approaching</li>
+                <li>Blue alerts = Snoozed via Slack (30 min)</li>
+                <li>System checks every 5 minutes</li>
+                <li>Predictive alerts with ETA and velocity</li>
+                <li>Alerts within 10km radius</li>
+                <li>Auto-expire after 30 minutes</li>
+            </ul>
+
+            <p style="margin-bottom: 12px;"><strong>Radar Map:</strong></p>
+            <ul style="margin: 0 20px;">
+                <li>Shows last 2 hours of rain data</li>
+                <li>Use Play/Pause to animate</li>
+                <li>Zoom and pan the map freely</li>
+                <li>Data from RainViewer API</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="instructions-close-btn">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- About Dialog -->
+<div id="about-modal" class="modal">
+    <div class="modal-dialog" style="width: 400px;">
+        <div class="modal-title-bar">
+            <div class="modal-title-text">About Rain Alert</div>
+        </div>
+        <div class="modal-body" style="padding: 16px; display: block; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 12px;">🌧️</div>
+            <h2 style="margin: 0 0 8px 0;">Rain Alert</h2>
+            <p style="color: #666; margin: 0 0 16px 0;">Version 1.2</p>
+
+            <p style="margin: 0 0 12px 0; text-align: left;">
+                <strong>Rain Alert</strong> monitors locations worldwide using real-time radar data with predictive nowcasting. Get alerts before rain arrives!
+            </p>
+
+            <p style="margin: 0 0 12px 0; text-align: left;">
+                <strong>Features:</strong>
+            </p>
+            <ul style="margin: 0 0 16px 20px; text-align: left;">
+                <li>Predictive rain detection (10km radius)</li>
+                <li>Movement tracking with velocity & ETA</li>
+                <li>Multi-channel notifications (Slack, Telegram, Email)</li>
+                <li>Interactive radar map with playback</li>
+                <li>5-minute check intervals</li>
+                <li>Auto-expiring alerts (30 min)</li>
+                <li>Alert feedback system for ML training</li>
+                <li>Windows 98 retro UI theme</li>
+            </ul>
+
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #666;">
+                Data powered by <a href="https://www.rainviewer.com/" target="_blank" style="color: #00f;">RainViewer</a>
+            </p>
+            <p style="margin: 0; font-size: 12px; color: #666;">
+                © 2026 Rain Alert
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="about-close-btn">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Modal Dialog -->
+<div id="modal" class="modal">
+    <div class="modal-dialog">
+        <div class="modal-title-bar">
+            <div class="modal-title-text" id="modal-title">Rain Alert</div>
+        </div>
+        <div class="modal-body">
+            <div class="modal-icon" id="modal-icon">⚠️</div>
+            <div class="modal-message" id="modal-message">Message</div>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="modal-btn-ok">OK</button>
+            <button class="button" id="modal-btn-cancel" style="display: none;">Cancel</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- OpenLayers JS -->
+<script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
+
+<script>
+// Tab switching functionality
+let currentTab = 'rainviewer';
+
+function switchRadarTab(tabName) {
+    // Hide all tabs and deactivate all tab buttons
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+
+    // Show selected tab and activate button
+    document.getElementById('tab-' + tabName).classList.add('active');
+    document.querySelector('.tab[data-tab="' + tabName + '"]').classList.add('active');
+
+    currentTab = tabName;
+
+    // Update default indicator
+    updateDefaultIndicator();
+}
+
+function setDefaultTab() {
+    localStorage.setItem('defaultRadarTab', currentTab);
+    updateDefaultIndicator();
+    showModal('Success', 'Default radar tab set to: ' + getTabDisplayName(currentTab), '✓');
+}
+
+function getTabDisplayName(tabName) {
+    const names = {
+        'rainviewer': 'RainViewer',
+        'weather2day-static': 'Weather2day',
+        'weather2day-google': 'Weather2day (Google Maps)'
+    };
+    return names[tabName] || tabName;
+}
+
+function updateDefaultIndicator() {
+    const defaultTab = localStorage.getItem('defaultRadarTab') || 'rainviewer';
+    document.getElementById('default-tab-indicator').textContent = 'Default: ' + getTabDisplayName(defaultTab);
+}
+
+function loadDefaultTab() {
+    const defaultTab = localStorage.getItem('defaultRadarTab') || 'rainviewer';
+    if (defaultTab !== 'rainviewer') {
+        switchRadarTab(defaultTab);
+    }
+    updateDefaultIndicator();
+}
+
+// Load default tab on page load
+window.addEventListener('DOMContentLoaded', () => {
+    loadDefaultTab();
+});
+
+// Map with radar animation (FIXED zoom, last 10-15 frames)
+let map, radarLayer;
+let radarFrames = [];
+let currentFrameIndex = 0;
+let isPlaying = false;
+let playInterval = null;
+
+// Initialize map - FIXED VIEW, NO ZOOM
+function initMap() {
+    // Center on Israel
+    const israelLat = 31.5;
+    const israelLon = 34.8;
+    const fixedZoom = 7;  // Show entire country
+
+    // Create map with zoom disabled but panning enabled
+    map = new ol.Map({
+        target: 'radar-map',
+        layers: [
+            new ol.layer.Tile({
+                source: new ol.source.OSM()
+            })
+        ],
+        view: new ol.View({
+            center: ol.proj.fromLonLat([israelLon, israelLat]),
+            zoom: fixedZoom,
+            minZoom: fixedZoom,
+            maxZoom: fixedZoom,
+            enableRotation: false
+        }),
+        controls: []  // Remove all controls (zoom buttons, etc)
+    });
+
+    // Disable zoom interactions but keep panning
+    map.getInteractions().forEach(function(interaction) {
+        if (interaction instanceof ol.interaction.DoubleClickZoom ||
+            interaction instanceof ol.interaction.MouseWheelZoom ||
+            interaction instanceof ol.interaction.PinchZoom) {
+            interaction.setActive(false);
+        }
+    });
+
+    // Add location markers
+    const markers = [];
+    {% for location in locations %}
+    markers.push(new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([{{ location.longitude }}, {{ location.latitude }}])),
+        name: '{{ location.address|e }}'
+    }));
+    {% endfor %}
+
+    const markerLayer = new ol.layer.Vector({
+        source: new ol.source.Vector({
+            features: markers
+        }),
+        style: new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 8,
+                fill: new ol.style.Fill({color: 'red'}),
+                stroke: new ol.style.Stroke({color: 'white', width: 2})
+            })
+        })
+    });
+
+    map.addLayer(markerLayer);
+}
+
+// Load last 10-15 radar frames
+async function loadRadarFrames() {
+    try {
+        const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        const data = await response.json();
+        const allFrames = data.radar.past || [];
+
+        if (allFrames.length === 0) {
+            document.getElementById('radar-timestamp').textContent = 'No radar data available';
+            return Promise.resolve();
+        }
+
+        // Get last 12 frames (about 2 hours at 10-min intervals)
+        radarFrames = allFrames.slice(-12);
+        currentFrameIndex = radarFrames.length - 1;  // Start at latest
+
+        // Update slider
+        document.getElementById('radar-slider').max = radarFrames.length - 1;
+        document.getElementById('radar-slider').value = currentFrameIndex;
+
+        updateRadarFrame();
+        return Promise.resolve();
+    } catch (error) {
+        console.error('Failed to load radar data:', error);
+        document.getElementById('radar-timestamp').textContent = 'Failed to load radar data';
+        return Promise.reject(error);
+    }
+}
+
+// Update radar overlay to show specific frame
+function updateRadarFrame() {
+    if (radarFrames.length === 0) return;
+
+    const frame = radarFrames[currentFrameIndex];
+    const timestamp = new Date(frame.time * 1000);
+    const minutesAgo = Math.round((Date.now() - frame.time * 1000) / (1000 * 60));
+
+    // Update timestamp display
+    document.getElementById('radar-timestamp').textContent =
+        timestamp.toLocaleString('en-US', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) +
+        ` (${minutesAgo} min ago)`;
+
+    document.getElementById('radar-index').textContent = `${currentFrameIndex + 1}/${radarFrames.length}`;
+
+    // Remove old radar layer
+    if (radarLayer) {
+        map.removeLayer(radarLayer);
+    }
+
+    // Create radar layer at FIXED zoom 7
+    const radarUrl = `https://tilecache.rainviewer.com${frame.path}/256/7/{x}/{y}/2/1_0.png`;
+
+    radarLayer = new ol.layer.Tile({
+        source: new ol.source.XYZ({
+            url: radarUrl,
+            crossOrigin: 'anonymous'
+        }),
+        opacity: 0.6
+    });
+
+    map.addLayer(radarLayer);
+}
+
+// Playback controls
+document.getElementById('radar-play-pause').addEventListener('click', () => {
+    isPlaying = !isPlaying;
+    document.getElementById('radar-play-pause').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+
+    if (isPlaying) {
+        const speed = parseInt(document.getElementById('radar-speed').value);
+        playInterval = setInterval(() => {
+            currentFrameIndex = (currentFrameIndex + 1) % radarFrames.length;
+            document.getElementById('radar-slider').value = currentFrameIndex;
+            updateRadarFrame();
+        }, speed);
+    } else {
+        clearInterval(playInterval);
+    }
+});
+
+document.getElementById('radar-prev').addEventListener('click', () => {
+    if (radarFrames.length === 0) return;
+    isPlaying = false;
+    clearInterval(playInterval);
+    document.getElementById('radar-play-pause').textContent = '▶ Play';
+    currentFrameIndex = (currentFrameIndex - 1 + radarFrames.length) % radarFrames.length;
+    document.getElementById('radar-slider').value = currentFrameIndex;
+    updateRadarFrame();
+});
+
+document.getElementById('radar-next').addEventListener('click', () => {
+    if (radarFrames.length === 0) return;
+    isPlaying = false;
+    clearInterval(playInterval);
+    document.getElementById('radar-play-pause').textContent = '▶ Play';
+    currentFrameIndex = (currentFrameIndex + 1) % radarFrames.length;
+    document.getElementById('radar-slider').value = currentFrameIndex;
+    updateRadarFrame();
+});
+
+document.getElementById('radar-slider').addEventListener('input', (e) => {
+    isPlaying = false;
+    clearInterval(playInterval);
+    document.getElementById('radar-play-pause').textContent = '▶ Play';
+    currentFrameIndex = parseInt(e.target.value);
+    updateRadarFrame();
+});
+
+document.getElementById('radar-speed').addEventListener('change', (e) => {
+    if (isPlaying) {
+        clearInterval(playInterval);
+        const speed = parseInt(e.target.value);
+        playInterval = setInterval(() => {
+            currentFrameIndex = (currentFrameIndex + 1) % radarFrames.length;
+            document.getElementById('radar-slider').value = currentFrameIndex;
+            updateRadarFrame();
+        }, speed);
+    }
+});
+
+// Initialize on load
+window.addEventListener('load', () => {
+    initMap();
+    loadRadarFrames().then(() => {
+        // Auto-start playing after frames are loaded
+        if (radarFrames.length > 0) {
+            setTimeout(() => {
+                document.getElementById('radar-play-pause').click();
+            }, 500);
+        }
+    });
+});
+
+// Reload radar data every 5 minutes
+setInterval(loadRadarFrames, 5 * 60 * 1000);
+
+// Custom Windows 98 Modal
+function showModal(title, message, icon, showCancel, callback) {
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalIcon = document.getElementById('modal-icon');
+    const modalMessage = document.getElementById('modal-message');
+    const btnOk = document.getElementById('modal-btn-ok');
+    const btnCancel = document.getElementById('modal-btn-cancel');
+
+    modalTitle.textContent = title;
+    modalMessage.textContent = message;
+    modalIcon.textContent = icon;
+    btnCancel.style.display = showCancel ? 'block' : 'none';
+
+    modal.classList.add('show');
+
+    const cleanup = () => {
+        modal.classList.remove('show');
+        btnOk.onclick = null;
+        btnCancel.onclick = null;
+    };
+
+    btnOk.onclick = () => {
+        cleanup();
+        if (callback) callback(true);
+    };
+
+    btnCancel.onclick = () => {
+        cleanup();
+        if (callback) callback(false);
+    };
+}
+
+function markAlert(alertId, isAccurate) {
+    const action = isAccurate ? 'true' : 'false';
+    fetch(`/api/alerts/${alertId}/feedback`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ accurate: isAccurate })
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            showModal('Error', 'Failed to save feedback', '❌');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showModal('Error', 'Network error', '❌');
+    });
+}
+
+function dismissAlert(alertId) {
+    fetch(`/api/alerts/${alertId}/dismiss`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function removeLocation(locationId) {
+    showModal('Rain Alert', 'Remove this location?', '❓', true, (confirmed) => {
+        if (confirmed) {
+            fetch(`/api/locations/${locationId}`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => {
+                if (response.ok) {
+                    location.reload();
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+    });
+}
+
+function setMainLocation(locationId) {
+    fetch(`/api/locations/${locationId}/set-main`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+// Add Location Dialog Functions
+function showAddLocationDialog() {
+    const modal = document.getElementById('add-location-modal');
+    const addressInput = document.getElementById('address');
+
+    // Reset form
+    addressInput.value = '';
+
+    // Show modal
+    modal.classList.add('show');
+
+    // Focus on input
+    setTimeout(() => addressInput.focus(), 100);
+}
+
+function closeAddLocationDialog() {
+    const modal = document.getElementById('add-location-modal');
+    modal.classList.remove('show');
+}
+
+async function submitAddLocation() {
+    const addressInput = document.getElementById('address');
+    const submitBtn = document.getElementById('add-location-submit-btn');
+    const address = addressInput.value.trim();
+
+    if (!address) {
+        showModal('Error', 'Please enter an address', '❌');
+        return;
+    }
+
+    // Disable button
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Adding...';
+
+    try {
+        const response = await fetch('/api/locations', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ address: address })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            closeAddLocationDialog();
+            showModal('Success', `Location added: ${data.address}`, '✓', false, () => {
+                location.reload();
+            });
+        } else {
+            showModal('Error', data.error || 'Failed to add location', '❌');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Add Location';
+        }
+    } catch (error) {
+        showModal('Error', 'Network error. Please try again.', '❌');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add Location';
+    }
+}
+
+// Add event listeners for add location dialog
+document.getElementById('add-location-submit-btn').addEventListener('click', submitAddLocation);
+document.getElementById('add-location-cancel-btn').addEventListener('click', closeAddLocationDialog);
+document.getElementById('add-location-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitAddLocation();
+});
+
+// Menu handling
+let anyMenuOpen = false;
+
+function closeMenus() {
+    document.querySelectorAll('.menu-dropdown').forEach(dropdown => {
+        dropdown.classList.remove('show');
+    });
+    document.querySelectorAll('.menu-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    anyMenuOpen = false;
+}
+
+function openMenu(menuId, dropdownId) {
+    closeMenus();
+    document.getElementById(dropdownId).classList.add('show');
+    document.getElementById(menuId).classList.add('active');
+    anyMenuOpen = true;
+}
+
+// File menu
+document.getElementById('menu-file').addEventListener('click', function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('menu-file-dropdown');
+    const isShown = dropdown.classList.contains('show');
+
+    if (isShown) {
+        closeMenus();
+    } else {
+        openMenu('menu-file', 'menu-file-dropdown');
+    }
+});
+
+document.getElementById('menu-file').addEventListener('mouseenter', function() {
+    if (anyMenuOpen) {
+        openMenu('menu-file', 'menu-file-dropdown');
+    }
+});
+
+// View menu
+document.getElementById('menu-view').addEventListener('click', function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('menu-view-dropdown');
+    const isShown = dropdown.classList.contains('show');
+
+    if (isShown) {
+        closeMenus();
+    } else {
+        openMenu('menu-view', 'menu-view-dropdown');
+    }
+});
+
+document.getElementById('menu-view').addEventListener('mouseenter', function() {
+    if (anyMenuOpen) {
+        openMenu('menu-view', 'menu-view-dropdown');
+    }
+});
+
+// Help menu
+document.getElementById('menu-help').addEventListener('click', function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('menu-help-dropdown');
+    const isShown = dropdown.classList.contains('show');
+
+    if (isShown) {
+        closeMenus();
+    } else {
+        openMenu('menu-help', 'menu-help-dropdown');
+    }
+});
+
+document.getElementById('menu-help').addEventListener('mouseenter', function() {
+    if (anyMenuOpen) {
+        openMenu('menu-help', 'menu-help-dropdown');
+    }
+});
+
+// Close menus when clicking outside
+document.addEventListener('click', closeMenus);
+
+// Settings Dialog Functions
+async function showSettingsDialog() {
+    const modal = document.getElementById('settings-modal');
+
+    // Load current settings
+    try {
+        const response = await fetch('/api/settings');
+        const settings = await response.json();
+
+        if (response.ok) {
+            // API returns settings directly, not wrapped in data.settings
+            document.getElementById('slack_enabled').checked = settings.slack_enabled || false;
+            document.getElementById('slack_webhook_url').value = settings.slack_webhook_url || '';
+            document.getElementById('telegram_enabled').checked = settings.telegram_enabled || false;
+            document.getElementById('telegram_bot_token').value = settings.telegram_bot_token || '';
+            document.getElementById('telegram_chat_id').value = settings.telegram_chat_id || '';
+            document.getElementById('email_enabled').checked = settings.email_enabled || false;
+            document.getElementById('email_address').value = settings.email_address || '';
+            document.getElementById('email_smtp_server').value = settings.email_smtp_server || '';
+            document.getElementById('email_smtp_port').value = settings.email_smtp_port || 587;
+            document.getElementById('email_smtp_user').value = settings.email_smtp_user || '';
+            document.getElementById('email_smtp_password').value = settings.email_smtp_password || '';
+        }
+    } catch (error) {
+        console.error('Error loading settings:', error);
+    }
+
+    modal.classList.add('show');
+}
+
+function closeSettingsDialog() {
+    const modal = document.getElementById('settings-modal');
+    modal.classList.remove('show');
+}
+
+async function saveSettings() {
+    const submitBtn = document.getElementById('settings-submit-btn');
+
+    const formData = {
+        slack_enabled: document.getElementById('slack_enabled').checked,
+        slack_webhook_url: document.getElementById('slack_webhook_url').value.trim(),
+        telegram_enabled: document.getElementById('telegram_enabled').checked,
+        telegram_bot_token: document.getElementById('telegram_bot_token').value.trim(),
+        telegram_chat_id: document.getElementById('telegram_chat_id').value.trim(),
+        email_enabled: document.getElementById('email_enabled').checked,
+        email_address: document.getElementById('email_address').value.trim(),
+        email_smtp_server: document.getElementById('email_smtp_server').value.trim(),
+        email_smtp_port: parseInt(document.getElementById('email_smtp_port').value) || 587,
+        email_smtp_user: document.getElementById('email_smtp_user').value.trim(),
+        email_smtp_password: document.getElementById('email_smtp_password').value
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            closeSettingsDialog();
+            showModal('Success', 'Settings saved successfully!', '✓');
+        } else {
+            showModal('Error', data.error || 'Failed to save settings', '❌');
+        }
+    } catch (error) {
+        showModal('Error', 'Network error. Please try again.', '❌');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Settings';
+    }
+}
+
+async function testNotifications() {
+    const testBtn = document.getElementById('settings-test-btn');
+
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testing...';
+
+    try {
+        const response = await fetch('/api/test-notifications', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showModal('Success', data.message || 'Test notification sent!', '✓');
+        } else {
+            showModal('Error', data.error || 'Failed to send test notification', '❌');
+        }
+    } catch (error) {
+        showModal('Error', 'Network error. Please try again.', '❌');
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Notifications';
+    }
+}
+
+// Event listeners for settings dialog
+document.getElementById('settings-submit-btn').addEventListener('click', saveSettings);
+document.getElementById('settings-cancel-btn').addEventListener('click', closeSettingsDialog);
+document.getElementById('settings-test-btn').addEventListener('click', testNotifications);
+
+// Instructions Dialog Functions
+function showInstructionsDialog() {
+    const modal = document.getElementById('instructions-modal');
+    modal.classList.add('show');
+}
+
+function closeInstructionsDialog() {
+    const modal = document.getElementById('instructions-modal');
+    modal.classList.remove('show');
+}
+
+document.getElementById('instructions-close-btn').addEventListener('click', closeInstructionsDialog);
+
+// About Dialog Functions
+function showAboutDialog() {
+    const modal = document.getElementById('about-modal');
+    modal.classList.add('show');
+}
+
+function closeAboutDialog() {
+    const modal = document.getElementById('about-modal');
+    modal.classList.remove('show');
+}
+
+document.getElementById('about-close-btn').addEventListener('click', closeAboutDialog);
+
+// Auto-refresh alerts every 30 seconds (fetch without page reload to avoid interrupting radar)
+setInterval(async () => {
+    try {
+        const response = await fetch('/api/alerts');
+        const data = await response.json();
+
+        // If there are new alerts, reload the page
+        const currentAlerts = document.querySelectorAll('.alert-item').length;
+        if (data.alerts && data.alerts.length > currentAlerts) {
+            location.reload();
+        }
+    } catch (error) {
+        console.error('Error checking alerts:', error);
+    }
+}, 30000);
+</script>
+{% endblock %}

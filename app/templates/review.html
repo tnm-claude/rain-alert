@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Alert Review{% endblock %}
+{% block window_title %}Alert Review - Rain Alert{% endblock %}
+
+{% block menu %}
+<div class="menu-bar">
+    <div class="menu-item" id="menu-file">
+        File
+        <div class="menu-dropdown" id="menu-file-dropdown">
+            <div class="menu-dropdown-item" onclick="window.location.href='/'; closeMenus();">Back to Home</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<fieldset>
+    <legend>Alert Review - Training Data Collection</legend>
+    <p style="margin-bottom: 12px; color: #666;">
+        Review all triggered alerts with their radar images. Mark each as accurate (✓ True) or false alarm (✗ False) to build training data for algorithm improvement.
+    </p>
+    {% if alerts %}
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+            {% for alert in alerts %}
+            <div class="alert-review-item{% if alert.user_feedback == True %} alert-true{% elif alert.user_feedback == False %} alert-false{% else %} alert-item{% endif %}" style="padding: 16px; border: 2px solid #808080;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">
+                            {{ alert.message }}
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            Triggered: {{ alert.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {% if not alert.dismissed %}
+                                <span style="color: #008000; font-weight: bold;">(ACTIVE)</span>
+                            {% else %}
+                                <span style="color: #666;">(Dismissed)</span>
+                            {% endif %}
+                        </div>
+                        {% if alert.user_feedback is not none %}
+                            <div style="font-size: 12px; margin-top: 4px;">
+                                <strong>Feedback:</strong>
+                                {% if alert.user_feedback %}
+                                    <span style="color: #0066cc;">✓ Accurate</span>
+                                {% else %}
+                                    <span style="color: #cc0000;">✗ False Alarm</span>
+                                {% endif %}
+                                ({{ alert.feedback_timestamp.strftime('%Y-%m-%d %H:%M:%S') if alert.feedback_timestamp else 'Unknown' }})
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="button button-success" onclick="markAlertReview({{ alert.id }}, true)" style="min-width: 70px;">✓ True</button>
+                        <button class="button button-danger" onclick="markAlertReview({{ alert.id }}, false)" style="min-width: 70px;">✗ False</button>
+                    </div>
+                </div>
+
+                {% if alert.radar_images_saved %}
+                <div style="background: white; padding: 12px; border: 1px solid #808080;">
+                    <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Saved Radar Images (Last 30 minutes before alert):</div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;">
+                        {% set image_list = alert.radar_images_saved.split(',') %}
+                        {% for image_name in image_list %}
+                        <div style="text-align: center;">
+                            <img src="/radar-feedback/{{ image_name }}" alt="Radar" style="width: 100%; border: 1px solid #ccc;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <div style="display: none; background: #f0f0f0; padding: 8px; font-size: 10px;">Image not found</div>
+                            <div style="font-size: 10px; color: #666; margin-top: 4px;">
+                                {{ image_name.replace('alert_' + alert.id|string + '_radar_', '').replace('.png', '') }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div style="background: #f0f0f0; padding: 12px; border: 1px solid #808080; color: #666; font-size: 12px;">
+                    No radar images saved for this alert.
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">No alerts to review</div>
+    {% endif %}
+</fieldset>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Menu handling
+let anyMenuOpen = false;
+
+function closeMenus() {
+    document.querySelectorAll('.menu-dropdown').forEach(dropdown => {
+        dropdown.classList.remove('show');
+    });
+    document.querySelectorAll('.menu-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    anyMenuOpen = false;
+}
+
+function openMenu(menuId, dropdownId) {
+    closeMenus();
+    document.getElementById(dropdownId).classList.add('show');
+    document.getElementById(menuId).classList.add('active');
+    anyMenuOpen = true;
+}
+
+// File menu
+document.getElementById('menu-file').addEventListener('click', function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('menu-file-dropdown');
+    const isShown = dropdown.classList.contains('show');
+
+    if (isShown) {
+        closeMenus();
+    } else {
+        openMenu('menu-file', 'menu-file-dropdown');
+    }
+});
+
+document.getElementById('menu-file').addEventListener('mouseenter', function() {
+    if (anyMenuOpen) {
+        openMenu('menu-file', 'menu-file-dropdown');
+    }
+});
+
+// Close menus when clicking outside
+document.addEventListener('click', closeMenus);
+
+// Mark alert feedback
+function markAlertReview(alertId, isAccurate) {
+    fetch(`/api/alerts/${alertId}/feedback`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ accurate: isAccurate })
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to save feedback');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
+{% endblock %}

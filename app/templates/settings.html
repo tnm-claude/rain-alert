@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Rain Alert{% endblock %}
+{% block window_title %}Notification Settings{% endblock %}
+
+{% block content %}
+<form id="settings-form">
+    <!-- Slack Settings -->
+    <fieldset>
+        <legend>
+            <label>
+                <input type="checkbox" id="slack_enabled" name="slack_enabled" {% if settings.slack_enabled %}checked{% endif %}>
+                Slack Notifications
+            </label>
+        </legend>
+        <div class="form-group">
+            <label for="slack_webhook_url">Webhook URL:</label>
+            <input type="text" id="slack_webhook_url" name="slack_webhook_url"
+                   value="{{ settings.slack_webhook_url or '' }}"
+                   placeholder="https://hooks.slack.com/services/...">
+            <small style="color: #666; display: block; margin-top: 4px;">
+                Get webhook URL from Slack: Workspace Settings → Apps → Incoming Webhooks
+            </small>
+        </div>
+    </fieldset>
+
+    <!-- Telegram Settings -->
+    <fieldset class="mt-2">
+        <legend>
+            <label>
+                <input type="checkbox" id="telegram_enabled" name="telegram_enabled" {% if settings.telegram_enabled %}checked{% endif %}>
+                Telegram Notifications
+            </label>
+        </legend>
+        <div class="form-group">
+            <label for="telegram_bot_token">Bot Token:</label>
+            <input type="text" id="telegram_bot_token" name="telegram_bot_token"
+                   value="{{ settings.telegram_bot_token or '' }}"
+                   placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+        </div>
+        <div class="form-group">
+            <label for="telegram_chat_id">Chat ID:</label>
+            <input type="text" id="telegram_chat_id" name="telegram_chat_id"
+                   value="{{ settings.telegram_chat_id or '' }}"
+                   placeholder="123456789">
+            <small style="color: #666; display: block; margin-top: 4px;">
+                Create bot with @BotFather, get chat ID from @userinfobot
+            </small>
+        </div>
+    </fieldset>
+
+    <!-- Email Settings -->
+    <fieldset class="mt-2">
+        <legend>
+            <label>
+                <input type="checkbox" id="email_enabled" name="email_enabled" {% if settings.email_enabled %}checked{% endif %}>
+                Email Notifications
+            </label>
+        </legend>
+        <div class="form-group">
+            <label for="email_address">Recipient Email:</label>
+            <input type="email" id="email_address" name="email_address"
+                   value="{{ settings.email_address or '' }}"
+                   placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+            <label for="email_smtp_server">SMTP Server:</label>
+            <input type="text" id="email_smtp_server" name="email_smtp_server"
+                   value="{{ settings.email_smtp_server or '' }}"
+                   placeholder="smtp.gmail.com">
+        </div>
+        <div class="form-group">
+            <label for="email_smtp_port">SMTP Port:</label>
+            <input type="number" id="email_smtp_port" name="email_smtp_port"
+                   value="{{ settings.email_smtp_port or 587 }}">
+        </div>
+        <div class="form-group">
+            <label for="email_smtp_user">SMTP Username:</label>
+            <input type="text" id="email_smtp_user" name="email_smtp_user"
+                   value="{{ settings.email_smtp_user or '' }}"
+                   placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+            <label for="email_smtp_password">SMTP Password:</label>
+            <input type="password" id="email_smtp_password" name="email_smtp_password"
+                   value="{{ settings.email_smtp_password or '' }}"
+                   placeholder="App password (not your regular password)">
+            <small style="color: #666; display: block; margin-top: 4px;">
+                Gmail: Use App Password from Google Account settings
+            </small>
+        </div>
+    </fieldset>
+
+    <div class="form-actions mt-2">
+        <a href="/"><button type="button" class="button">Back</button></a>
+        <button type="button" class="button" id="test-btn">Test Notifications</button>
+        <button type="submit" class="button" id="submit-btn">Save Settings</button>
+    </div>
+</form>
+
+<!-- Windows 98 Modal Dialog -->
+<div id="modal" class="modal">
+    <div class="modal-dialog">
+        <div class="modal-title-bar">
+            <div class="modal-title-text" id="modal-title">Rain Alert</div>
+        </div>
+        <div class="modal-body">
+            <div class="modal-icon" id="modal-icon">ℹ️</div>
+            <div class="modal-message" id="modal-message">Message</div>
+        </div>
+        <div class="modal-footer">
+            <button class="button" id="modal-btn-ok">OK</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Custom Windows 98 Modal
+function showModal(title, message, icon) {
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalIcon = document.getElementById('modal-icon');
+    const modalMessage = document.getElementById('modal-message');
+    const btnOk = document.getElementById('modal-btn-ok');
+
+    modalTitle.textContent = title;
+    modalMessage.textContent = message;
+    modalIcon.textContent = icon;
+
+    modal.classList.add('show');
+
+    btnOk.onclick = () => {
+        modal.classList.remove('show');
+    };
+}
+
+document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = {
+        slack_enabled: document.getElementById('slack_enabled').checked,
+        slack_webhook_url: document.getElementById('slack_webhook_url').value.trim(),
+        telegram_enabled: document.getElementById('telegram_enabled').checked,
+        telegram_bot_token: document.getElementById('telegram_bot_token').value.trim(),
+        telegram_chat_id: document.getElementById('telegram_chat_id').value.trim(),
+        email_enabled: document.getElementById('email_enabled').checked,
+        email_address: document.getElementById('email_address').value.trim(),
+        email_smtp_server: document.getElementById('email_smtp_server').value.trim(),
+        email_smtp_port: parseInt(document.getElementById('email_smtp_port').value) || 587,
+        email_smtp_user: document.getElementById('email_smtp_user').value.trim(),
+        email_smtp_password: document.getElementById('email_smtp_password').value
+    };
+
+    const submitBtn = document.getElementById('submit-btn');
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showModal('Success', 'Settings saved successfully!', '✓');
+        } else {
+            showModal('Error', data.error || 'Failed to save settings', '❌');
+        }
+    } catch (error) {
+        showModal('Error', 'Network error. Please try again.', '❌');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Settings';
+    }
+});
+
+document.getElementById('test-btn').addEventListener('click', async () => {
+    const testBtn = document.getElementById('test-btn');
+
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testing...';
+
+    try {
+        const response = await fetch('/api/test-notifications', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showModal('Success', data.message || 'Test notification sent!', '✓');
+        } else {
+            showModal('Error', data.error || 'Failed to send test notification', '❌');
+        }
+    } catch (error) {
+        showModal('Error', 'Network error. Please try again.', '❌');
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Notifications';
+    }
+});
+</script>
+{% endblock %}

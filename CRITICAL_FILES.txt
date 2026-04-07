@@ -1,0 +1,138 @@
+⚠️  CRITICAL DATA FILES - DO NOT DELETE ⚠️
+=============================================
+
+These files contain ALL your project data. If you lose these, you lose:
+- All configured locations
+- All alert history
+- All feedback data for ML training
+- All saved radar images
+- All notification settings
+
+CRITICAL FILES TO PRESERVE:
+--------------------------
+
+1. data/rain_alert.db
+   - SQLite database
+   - Contains: locations, alerts, feedback, notification settings
+   - Size: ~500 KB - 50 MB (grows over time)
+   - BACKUP REGULARLY!
+
+2. data/radar/alerts/
+   - Directory with saved radar images
+   - Contains: 30 minutes of radar images before each alert
+   - Used for ML training when you mark alerts as true/false
+   - Size: Can grow to several GB over time
+   - Format: alert_{alert_id}_radar_{timestamp}.png
+
+3. .env
+   - Configuration file
+   - Contains: SECRET_KEY, database path, app settings
+   - Size: ~2 KB
+   - Sensitive: Contains SMTP passwords, API tokens if configured
+
+4. rain-alert.log (optional)
+   - Application logs
+   - Useful for debugging
+   - Size: Can grow large, rotate monthly
+   - Can be regenerated but history is lost
+
+
+IMPORTANT NOTES:
+----------------
+
+⚠️  .gitignore EXCLUDES THESE FILES
+   Your .gitignore is configured to NOT track these files in git.
+   This is good for security but means they won't be backed up via git.
+
+✅  Use the backup script: ./create_backup.sh
+   This will create a timestamped backup of all critical files.
+
+✅  Regular backup schedule:
+   - Before major changes: ALWAYS backup
+   - After marking alerts: Weekly backup recommended
+   - Before updates: ALWAYS backup
+   - Monthly: Full backup + export training data
+
+
+BACKUP LOCATIONS:
+-----------------
+
+Default backup directory:
+  /Users/yoav.magor/dev/rain-alert/backups/
+
+Alternative safe locations:
+  - External drive
+  - Cloud storage (Dropbox, Google Drive, iCloud)
+  - Time Machine backups
+  - Git repository (if private and .gitignore adjusted)
+
+
+HOW TO BACKUP MANUALLY:
+------------------------
+
+# Quick backup (database only)
+cp data/rain_alert.db data/rain_alert_backup_$(date +%Y%m%d).db
+
+# Full backup (everything)
+tar -czf rain-alert-backup-$(date +%Y%m%d_%H%M%S).tar.gz data/ .env
+
+# Or use the provided script
+./create_backup.sh
+
+
+HOW TO RESTORE:
+---------------
+
+# Restore database
+cp data/rain_alert_backup_YYYYMMDD.db data/rain_alert.db
+./restart.sh
+
+# Restore from full backup
+tar -xzf rain-alert-backup-YYYYMMDD_HHMMSS.tar.gz
+./restart.sh
+
+
+WHAT HAPPENS IF YOU LOSE THESE FILES:
+--------------------------------------
+
+❌ data/rain_alert.db deleted:
+   - All locations lost
+   - All alert history lost
+   - All feedback data lost
+   - Notification settings lost
+   - Cannot continue ML training
+   → Must start from scratch
+
+❌ data/radar/alerts/ deleted:
+   - Cannot review old alerts with radar context
+   - Lose ML training images
+   - Cannot verify false positives/negatives
+   → Historical analysis impossible
+
+❌ .env deleted:
+   - App won't start (missing SECRET_KEY)
+   - Need to reconfigure everything
+   → Can regenerate but lose custom settings
+
+
+DISK SPACE MONITORING:
+----------------------
+
+Check data directory size:
+  du -sh data/
+
+Check radar images:
+  du -sh data/radar/alerts/
+
+Old radar images are auto-cleaned, but alert feedback images are kept forever.
+If disk space becomes an issue, you can manually archive old alert images:
+
+# Archive alerts older than 6 months
+find data/radar/alerts/ -name "*.png" -mtime +180 -exec mv {} data/radar/alerts/archive/ \;
+
+
+FOR MORE INFORMATION:
+---------------------
+
+See PROJECT_SUMMARY.md for complete documentation.
+See backup script: ./create_backup.sh

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Rain Alert{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/windows98.css') }}">
+</head>
+<body>
+    <div class="window">
+        <div class="title-bar">
+            <div class="title-bar-text">{% block window_title %}Rain Alert{% endblock %}</div>
+            <div class="title-bar-controls">
+                <button aria-label="Close">×</button>
+            </div>
+        </div>
+        {% block menu %}{% endblock %}
+        <div class="window-body">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

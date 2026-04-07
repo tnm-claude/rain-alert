@@ -1,0 +1,622 @@
+/* Windows 98 Theme */
+:root {
+    --win98-gray: #c0c0c0;
+    --win98-dark-gray: #808080;
+    --win98-light-gray: #dfdfdf;
+    --win98-white: #ffffff;
+    --win98-black: #000000;
+    --win98-blue: #000080;
+    --win98-blue-title: #0a0a7e;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    font-family: "MS Sans Serif", Tahoma, Arial, sans-serif;
+    font-size: 14px;
+    background: #008080;
+    color: var(--win98-black);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Reduce padding on smaller screens */
+@media (max-height: 900px) {
+    body {
+        padding: 10px;
+    }
+
+    .window {
+        height: calc(100vh - 20px);
+    }
+
+    .window-body {
+        padding: 12px;
+        gap: 12px;
+    }
+}
+
+@media (max-height: 768px) {
+    body {
+        padding: 5px;
+    }
+
+    .window {
+        height: calc(100vh - 10px);
+    }
+
+    .window-body {
+        padding: 8px;
+        gap: 8px;
+    }
+}
+
+/* Window Chrome */
+.window {
+    background: var(--win98-gray);
+    border: solid 2px var(--win98-gray);
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+    max-width: 1000px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 40px);
+    width: 100%;
+}
+
+.title-bar {
+    background: linear-gradient(to right, #0000aa, #1084d0);
+    padding: 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.title-bar-text {
+    color: white;
+    font-weight: bold;
+    font-size: 13px;
+    padding-left: 5px;
+}
+
+.title-bar-controls button {
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: var(--win98-gray);
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: inset -1px -1px 0 var(--win98-dark-gray),
+                inset 1px 1px 0 var(--win98-white);
+}
+
+.window-body {
+    padding: 16px;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Radar section */
+.window-body > fieldset:first-child {
+    flex-shrink: 0;
+}
+
+#radar-map {
+    width: 100%;
+    height: 500px;
+    position: relative;
+}
+
+/* Responsive radar height for smaller screens */
+@media (max-height: 900px) {
+    #radar-map {
+        height: 300px !important;
+    }
+}
+
+@media (max-height: 768px) {
+    #radar-map {
+        height: 250px !important;
+    }
+}
+
+@media (max-height: 700px) {
+    #radar-map {
+        height: 200px !important;
+    }
+}
+
+/* Alerts section - max 2 items visible, scroll rest */
+.window-body > fieldset:nth-child(2) {
+    flex-shrink: 0;
+    min-height: 80px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* Locations section - scrollable */
+.window-body > fieldset:nth-child(3) {
+    flex-shrink: 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Button group at bottom */
+.window-body > .button-group,
+.window-body > .mt-2 {
+    flex-shrink: 0;
+}
+
+/* Buttons */
+.button {
+    background: var(--win98-gray);
+    border: none;
+    padding: 6px 16px;
+    font-family: inherit;
+    font-size: 14px;
+    box-shadow: inset -1px -1px 0 var(--win98-dark-gray),
+                inset 1px 1px 0 var(--win98-white),
+                inset -2px -2px 0 #404040,
+                inset 2px 2px 0 var(--win98-light-gray);
+    cursor: pointer;
+    min-width: 75px;
+}
+
+.button:hover {
+    background: var(--win98-light-gray);
+}
+
+.button:active {
+    box-shadow: inset 1px 1px 0 var(--win98-dark-gray),
+                inset -1px -1px 0 var(--win98-white),
+                inset 2px 2px 0 #000;
+    transform: translate(1px, 1px);
+}
+
+.button-danger {
+    background: #c00;
+    color: white;
+}
+
+/* Input Fields */
+input[type="text"] {
+    background: white;
+    border: none;
+    padding: 4px;
+    font-family: inherit;
+    font-size: 14px;
+    box-shadow: inset 1px 1px 0 var(--win98-dark-gray),
+                inset -1px -1px 0 var(--win98-white),
+                inset 2px 2px 0 #000;
+    width: 100%;
+}
+
+/* Fieldset */
+fieldset {
+    border: solid 2px;
+    border-color: var(--win98-white) var(--win98-dark-gray) var(--win98-dark-gray) var(--win98-white);
+    padding: 12px;
+    margin: 12px 0;
+}
+
+legend {
+    background: var(--win98-gray);
+    padding: 0 4px;
+}
+
+/* List */
+.location-list, .alert-list {
+    list-style: none;
+}
+
+.location-item, .alert-item {
+    background: white;
+    border: solid 2px;
+    border-color: var(--win98-dark-gray) var(--win98-white) var(--win98-white) var(--win98-dark-gray);
+    padding: 12px;
+    margin: 8px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.location-item {
+    flex-direction: row-reverse;
+}
+
+.location-item > div {
+    text-align: right;
+}
+
+.alert-item {
+    background: #e0e0e0;  /* Gray - no feedback yet */
+    border-color: #808080 var(--win98-white) var(--win98-white) #808080;
+}
+
+.alert-item.alert-true {
+    background: #cce5ff;  /* Blue - marked as accurate */
+    border-color: #0066cc var(--win98-white) var(--win98-white) #0066cc;
+}
+
+.alert-item.alert-false {
+    background: #ffe4e1;  /* Red - marked as false alarm */
+    border-color: #f00 var(--win98-white) var(--win98-white) #f00;
+}
+
+.alert-item.alert-slack-dismissed {
+    opacity: 0.7;
+}
+
+.alert-item .message {
+    flex: 1;
+    font-weight: bold;
+}
+
+.alert-review-item {
+    background: #e0e0e0;  /* Gray - no feedback yet */
+}
+
+.alert-review-item.alert-true {
+    background: #cce5ff;  /* Blue - marked as accurate */
+}
+
+.alert-review-item.alert-false {
+    background: #ffe4e1;  /* Red - marked as false alarm */
+}
+
+/* Spacing */
+.mb-2 {
+    margin-bottom: 12px;
+}
+
+.mt-2 {
+    margin-top: 12px;
+}
+
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 32px;
+    color: var(--win98-dark-gray);
+}
+
+/* Form */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.form-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+/* Button Groups */
+.button-group {
+    display: flex;
+    gap: 8px;
+}
+
+.button-group .button {
+    min-width: 150px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Modal Dialogs */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-dialog {
+    background: var(--win98-gray);
+    border: solid 2px var(--win98-gray);
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
+    min-width: 300px;
+    max-width: 500px;
+}
+
+.modal-title-bar {
+    background: linear-gradient(to right, #0000aa, #1084d0);
+    padding: 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-title-text {
+    color: white;
+    font-weight: bold;
+    font-size: 13px;
+    padding-left: 5px;
+}
+
+.modal-body {
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.modal-message {
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 0 16px 16px 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.modal-footer .button {
+    min-width: 75px;
+}
+
+/* Menu Bar */
+.menu-bar {
+    background: var(--win98-gray);
+    border-bottom: solid 1px var(--win98-white);
+    display: flex;
+    padding: 2px 4px;
+    gap: 4px;
+}
+
+.menu-item {
+    position: relative;
+    padding: 4px 8px;
+    cursor: pointer;
+    background: var(--win98-gray);
+    border: none;
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.menu-item:hover {
+    background: var(--win98-blue);
+    color: white;
+}
+
+.menu-item.active {
+    background: var(--win98-blue);
+    color: white;
+}
+
+.menu-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: var(--win98-gray);
+    border: solid 2px;
+    border-color: var(--win98-white) var(--win98-dark-gray) var(--win98-dark-gray) var(--win98-white);
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    min-width: 180px;
+    z-index: 1000;
+    padding: 2px;
+}
+
+.menu-dropdown.show {
+    display: block;
+}
+
+.menu-dropdown-item {
+    padding: 4px 24px 4px 8px;
+    cursor: pointer;
+    background: var(--win98-gray);
+    color: var(--win98-black);
+    white-space: nowrap;
+}
+
+.menu-dropdown-item:hover {
+    background: var(--win98-blue);
+    color: white;
+}
+
+.menu-dropdown-separator {
+    height: 1px;
+    background: var(--win98-dark-gray);
+    margin: 2px 0;
+}
+
+/* Small icon buttons for locations */
+.location-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.button-small {
+    background: var(--win98-gray);
+    border: none;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 16px;
+    box-shadow: inset -1px -1px 0 var(--win98-dark-gray),
+                inset 1px 1px 0 var(--win98-white),
+                inset -2px -2px 0 #404040,
+                inset 2px 2px 0 var(--win98-light-gray);
+    cursor: pointer;
+    min-width: 32px;
+    height: 32px;
+    line-height: 1;
+}
+
+.button-small:hover {
+    background: var(--win98-light-gray);
+}
+
+.button-small:active {
+    box-shadow: inset 1px 1px 0 var(--win98-dark-gray),
+                inset -1px -1px 0 var(--win98-white),
+                inset 2px 2px 0 #000;
+    transform: translate(1px, 1px);
+}
+
+.button-small.button-danger {
+    background: #c00;
+    color: white;
+}
+
+.button-small.button-main {
+    background: #ffd700;
+}
+
+.button-small.button-main.active {
+    background: #228b22;
+    color: white;
+}
+
+/* Radar tile rendering */
+.radar-tiles {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
+.radar-tiles img {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
+/* Windows 98-style Tabs */
+.tab-container {
+    display: flex;
+    border-bottom: 2px solid var(--win98-dark-gray);
+    margin-bottom: -2px;
+    position: relative;
+    z-index: 1;
+}
+
+.tab {
+    background: var(--win98-gray);
+    border: 2px solid;
+    border-color: var(--win98-white) var(--win98-dark-gray) var(--win98-dark-gray) var(--win98-white);
+    padding: 6px 16px 4px 16px;
+    margin-right: 2px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    position: relative;
+    top: 2px;
+    border-bottom: none;
+}
+
+.tab:hover {
+    background: var(--win98-light-gray);
+}
+
+.tab.active {
+    background: var(--win98-gray);
+    border-bottom: 2px solid var(--win98-gray);
+    top: 2px;
+    font-weight: bold;
+    z-index: 2;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.tab-settings {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--win98-dark-gray);
+}
+
+.tab-settings button {
+    padding: 2px 8px;
+    font-size: 11px;
+    min-width: auto;
+}
+
+/* Iframe containers */
+.radar-iframe-container {
+    width: 100%;
+    height: 500px;
+    background: #e0e0e0;
+    border: 2px solid;
+    border-color: var(--win98-dark-gray) var(--win98-white) var(--win98-white) var(--win98-dark-gray);
+    padding: 2px;
+}
+
+.radar-iframe-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+}
+
+/* Responsive iframe height for smaller screens */
+@media (max-height: 900px) {
+    .radar-iframe-container {
+        height: 300px !important;
+    }
+}
+
+@media (max-height: 768px) {
+    .radar-iframe-container {
+        height: 250px !important;
+    }
+}
+
+@media (max-height: 700px) {
+    .radar-iframe-container {
+        height: 200px !important;
+    }
+}
