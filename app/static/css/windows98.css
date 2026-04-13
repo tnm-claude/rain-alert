@@ -588,9 +588,6 @@ legend {
 /* Iframe containers */
 .radar-iframe-container {
     width: 100%;
-    height: calc(100vh - 320px);
-    min-height: 380px;
-    max-height: 680px;
     background: #e0e0e0;
     border: 2px solid;
     border-color: var(--win98-dark-gray) var(--win98-white) var(--win98-white) var(--win98-dark-gray);
@@ -605,13 +602,24 @@ legend {
     background: white;
 }
 
-/* Embed-specific iframes: fill container exactly, no clipping needed */
-.radar-iframe-embed {
-    padding: 0;
+/*
+ * Weather2day full-page iframes: crop out header/nav/ads (310px tall)
+ * and scale the 1050px-wide body to fit the container.
+ * Heights and scale factor are calculated by scaleW2dIframes() in JS.
+ *
+ * Animated radar: show 512px image + ~60px controls = 580px of content
+ * Map: fill remaining viewport height
+ */
+.w2d-animated,
+.w2d-map {
+    /* height set by JS */
 }
 
-.radar-iframe-embed iframe {
-    display: block;
-    width: 100%;
-    height: 100%;
+.w2d-animated iframe,
+.w2d-map iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
+    /* width, height, transform set by JS */
 }

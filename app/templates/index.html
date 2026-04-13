@@ -81,8 +81,8 @@
         <small style="font-weight: normal; font-size: 11px; color: #666; display: block; margin: 8px 0 12px 0;">
             Data: <a href="https://www.weather2day.co.il/" target="_blank" style="color: #00f;">Weather2day.co.il</a> - Animated radar with play controls
         </small>
-        <div class="radar-iframe-container radar-iframe-embed">
-            <iframe src="https://www.weather2day.co.il/radar-embed" title="Weather2day Rain Radar" scrolling="no" frameborder="0"></iframe>
+        <div class="radar-iframe-container w2d-animated" id="w2d-animated-container">
+            <iframe src="https://www.weather2day.co.il/%D7%9E%D7%9B%D7%9D-%D7%92%D7%A9%D7%9D" title="Weather2day Rain Radar" frameborder="0" scrolling="no"></iframe>
         </div>
     </div>
 
@@ -91,8 +91,8 @@
         <small style="font-weight: normal; font-size: 11px; color: #666; display: block; margin: 8px 0 12px 0;">
             Data: <a href="https://www.weather2day.co.il/" target="_blank" style="color: #00f;">Weather2day.co.il</a> - Interactive radar map
         </small>
-        <div class="radar-iframe-container radar-iframe-embed">
-            <iframe src="https://www.weather2day.co.il/widget" title="Weather2day Radar Map" scrolling="no" frameborder="0"></iframe>
+        <div class="radar-iframe-container w2d-map" id="w2d-map-container">
+            <iframe src="https://www.weather2day.co.il/rain-radar-google" title="Weather2day Radar Map" frameborder="0" scrolling="no"></iframe>
         </div>
     </div>
 </fieldset>
@@ -395,6 +395,39 @@
 <script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
 
 <script>
+// Weather2day iframe scaling
+// The site body is 1050px wide; we crop the top 310px (header+nav+ads)
+// and scale the iframe to fit our container width.
+const W2D_NATIVE_WIDTH = 1050;
+const W2D_HEADER_PX   = 310;  // pixels to hide from top
+const W2D_RADAR_SHOW  = 590;  // radar image (512) + controls (~60) + margin
+const W2D_MAP_SHOW    = Math.max(400, window.innerHeight - 340);
+
+function scaleW2dIframes() {
+    // Animated radar
+    const animC = document.getElementById('w2d-animated-container');
+    if (animC) {
+        const scale = animC.clientWidth / W2D_NATIVE_WIDTH;
+        const iframe = animC.querySelector('iframe');
+        iframe.style.width  = W2D_NATIVE_WIDTH + 'px';
+        iframe.style.height = (W2D_HEADER_PX + W2D_RADAR_SHOW) + 'px';
+        iframe.style.transform = `scale(${scale}) translateY(${-W2D_HEADER_PX}px)`;
+        animC.style.height  = Math.round(W2D_RADAR_SHOW * scale) + 'px';
+    }
+    // Interactive map
+    const mapC = document.getElementById('w2d-map-container');
+    if (mapC) {
+        const mapShow = Math.max(400, window.innerHeight - 340);
+        const scale   = mapC.clientWidth / W2D_NATIVE_WIDTH;
+        const iframe  = mapC.querySelector('iframe');
+        iframe.style.width  = W2D_NATIVE_WIDTH + 'px';
+        iframe.style.height = (W2D_HEADER_PX + mapShow) + 'px';
+        iframe.style.transform = `scale(${scale}) translateY(${-W2D_HEADER_PX}px)`;
+        mapC.style.height   = Math.round(mapShow * scale) + 'px';
+    }
+}
+window.addEventListener('resize', scaleW2dIframes);
+
 // Tab switching functionality
 let currentTab = 'rainviewer';
 
@@ -412,6 +445,11 @@ function switchRadarTab(tabName) {
     document.querySelector('.tab[data-tab="' + tabName + '"]').classList.add('active');
 
     currentTab = tabName;
+
+    // Recalculate w2d scaling when switching to those tabs (container now has width)
+    if (tabName === 'weather2day-static' || tabName === 'weather2day-google') {
+        setTimeout(scaleW2dIframes, 0);
+    }
 
     // Update default indicator
     updateDefaultIndicator();
@@ -448,6 +486,7 @@ function loadDefaultTab() {
 // Load default tab on page load
 window.addEventListener('DOMContentLoaded', () => {
     loadDefaultTab();
+    scaleW2dIframes();
 });
 
 // Map with radar animation (FIXED zoom, last 10-15 frames)
