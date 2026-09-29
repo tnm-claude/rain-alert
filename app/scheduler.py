@@ -59,10 +59,11 @@ def check_all_locations():
                     print(f"[Scheduler] ✓ Rain detected: intensity={intensity}, confidence={confidence}, distance={current_distance}km")
 
                     # Check if we have a recent alert (within last 30 minutes) for this location
+                    # Note: check regardless of dismissed status — dismissing an alert must not
+                    # bypass the cooldown and cause an immediate re-alert.
                     recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
                     recent_alert = Alert.query.filter(
                         Alert.location_id == location.id,
-                        Alert.dismissed == False,
                         Alert.created_at >= recent_cutoff
                     ).first()
 
