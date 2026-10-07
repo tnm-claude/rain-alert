@@ -22,10 +22,17 @@ class NotificationService:
 
                 blocks = [
                     {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Rain Alert"
+                        }
+                    },
+                    {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{message}*\n📍 Location: {address}"
+                            "text": f"{message}\n📍 *Location:* {address}"
                         }
                     },
                     {
@@ -36,7 +43,7 @@ class NotificationService:
                 ]
 
                 payload = {
-                    "text": message,  # Fallback text
+                    "text": "Rain Alert",  # Fallback text
                     "blocks": blocks
                 }
             else:
@@ -132,10 +139,13 @@ class NotificationService:
         # Send to Telegram
         if settings.telegram_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
             total_enabled += 1
+            telegram_message = alert_message
+            if alert and hasattr(alert, 'location'):
+                telegram_message = f"Rain Alert\n\n{alert_message}\nLocation: {alert.location.address}"
             if NotificationService.send_telegram(
                 settings.telegram_bot_token,
                 settings.telegram_chat_id,
-                alert_message
+                telegram_message
             ):
                 success_count += 1
                 print(f"[Notifications] Sent to Telegram")

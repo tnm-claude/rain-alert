@@ -1,299 +1,212 @@
 """
-Global radar-based nowcasting service using RainViewer tile server
-Now includes predictive rain detection by analyzing movement patterns
+Radar-based rain nowcasting using RainViewer's free tile API.
+
+Free API facts (verified 2026-10): past frames only (2 h, every 10 min), no
+nowcast, max zoom 7 (z8+ returns a "Zoom Level Not Supported" image with
+HTTP 200), only colour scheme 2 "Universal Blue" (other scheme ids silently
+return the same image), 100 requests/IP/minute. Israel is covered by the IMS
+Beit Dagan (ILBG) and Mekorot Dalton (ILDL) radars.
+
+Per check: 1 API request, then each frame's tiles around the location are
+fetched once (2 tiles for Ramat Gan) and cached in memory, so steady state
+is ~3 requests per check. All analysis lives in app.detection.
 """
-import requests
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple
-from PIL import Image
-from io import BytesIO
 import math
+import time
+from collections import OrderedDict
+from io import BytesIO
+from typing import ClassVar
+
+import numpy as np
+import requests
+from PIL import Image
+
+from app import detection
+
+
+class RadarFetchError(Exception):
+    pass
 
 
 class GlobalRadarService:
-    """Check rain at any global location using RainViewer's tile server with predictive capabilities"""
+    """Detect rain at / approaching a location from RainViewer radar frames"""
 
     API_URL = "https://api.rainviewer.com/public/weather-maps.json"
-    ZOOM_LEVEL = 7  # Zoom level for radar tiles
+    SOURCE = "rainviewer"
+    ZOOM_LEVEL = 7          # max zoom on the free API
+    TILE_SIZE = 256         # 256 px at z7 = ~1.04 km/px at 32N
+    COLOR_SCHEME = 2        # Universal Blue (the only scheme served)
+    TILE_OPTIONS = "0_0"    # smoothing off (exact palette colours), snow not separated
+    HTTP_TIMEOUT = 8        # seconds per request
+    TIME_BUDGET_S = 60      # stop fetching older frames after this long
+    MAX_CONSECUTIVE_FAILURES = 3
+    MAX_UNKNOWN_PIXEL_FRACTION = 0.01  # more unknown colours than this => not a radar tile
+    CACHE_TILES = 128
 
-    # Detection parameters
-    CHECK_RADIUS_KM = [5, 10, 15, 20, 25]  # Concentric circles to check (in km)
-    FRAMES_TO_ANALYZE = 4  # Last 4 frames (~40 minutes)
-    PREDICTION_THRESHOLD_MINUTES = 30  # Alert if rain within 30 minutes (storms can move 90+ km/h)
-    MIN_INTENSITY_THRESHOLD = 50  # Minimum alpha value to consider as rain
+    _tile_cache: ClassVar[OrderedDict] = OrderedDict()
 
     @staticmethod
     def lat_lon_to_tile(lat: float, lon: float, zoom: int) -> tuple:
         """Convert lat/lon to tile coordinates at given zoom level"""
-        lat_rad = math.radians(lat)
-        n = 2.0 ** zoom
-        x = int((lon + 180.0) / 360.0 * n)
-        y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
-        return (x, y)
-
-    @staticmethod
-    def lat_lon_to_pixel_in_tile(lat: float, lon: float, zoom: int, tile_size: int = 256) -> tuple:
-        """Convert lat/lon to pixel coordinates within a tile"""
-        lat_rad = math.radians(lat)
-        n = 2.0 ** zoom
-        x_tile = (lon + 180.0) / 360.0 * n
-        y_tile = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
-
-        # Get pixel within the tile
-        pixel_x = int((x_tile - int(x_tile)) * tile_size)
-        pixel_y = int((y_tile - int(y_tile)) * tile_size)
-
-        return (pixel_x, pixel_y)
+        x, y = detection.lat_lon_to_global_px(lat, lon, zoom, 1)
+        return (int(x), int(y))
 
     @staticmethod
     def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate distance between two points in kilometers using Haversine formula"""
-        R = 6371  # Earth radius in kilometers
-
+        """Distance between two points in kilometers"""
         dlat = math.radians(lat2 - lat1)
         dlon = math.radians(lon2 - lon1)
-        lat1 = math.radians(lat1)
-        lat2 = math.radians(lat2)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        return 6371 * 2 * math.asin(math.sqrt(a))
 
-        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-        c = 2 * math.asin(math.sqrt(a))
-
-        return R * c
+    # ------------------------------------------------------------------ I/O
+    @staticmethod
+    def fetch_frame_list() -> tuple:
+        """Returns (host, [{'time': epoch, 'path': str}, ...] oldest first)."""
+        response = requests.get(GlobalRadarService.API_URL, timeout=GlobalRadarService.HTTP_TIMEOUT)
+        if response.status_code != 200:
+            raise RadarFetchError(f"API returned HTTP {response.status_code}")
+        data = response.json()
+        frames = [f for f in data.get('radar', {}).get('past', []) if f.get('time') and f.get('path')]
+        return data.get('host', 'https://tilecache.rainviewer.com'), sorted(frames, key=lambda f: f['time'])
 
     @staticmethod
-    def get_point_at_distance(lat: float, lon: float, distance_km: float, bearing_degrees: float) -> Tuple[float, float]:
-        """Get lat/lon of a point at given distance and bearing from origin"""
-        R = 6371  # Earth radius in km
-
-        lat_rad = math.radians(lat)
-        lon_rad = math.radians(lon)
-        bearing_rad = math.radians(bearing_degrees)
-
-        lat2_rad = math.asin(
-            math.sin(lat_rad) * math.cos(distance_km / R) +
-            math.cos(lat_rad) * math.sin(distance_km / R) * math.cos(bearing_rad)
-        )
-
-        lon2_rad = lon_rad + math.atan2(
-            math.sin(bearing_rad) * math.sin(distance_km / R) * math.cos(lat_rad),
-            math.cos(distance_km / R) - math.sin(lat_rad) * math.sin(lat2_rad)
-        )
-
-        return (math.degrees(lat2_rad), math.degrees(lon2_rad))
+    def tile_url(host: str, path: str, x: int, y: int) -> str:
+        s = GlobalRadarService
+        return f"{host}{path}/{s.TILE_SIZE}/{s.ZOOM_LEVEL}/{x}/{y}/{s.COLOR_SCHEME}/{s.TILE_OPTIONS}.png"
 
     @staticmethod
-    def check_rain_in_radius(lat: float, lon: float, radius_km: float, host: str, path: str) -> Tuple[bool, int]:
-        """
-        Check if there's rain within a given radius around a location
-        Returns (rain_detected, max_intensity)
-        """
-        # Sample points around the circle (8 directions + center)
-        sample_points = [(lat, lon)]  # Start with center
-
-        for bearing in [0, 45, 90, 135, 180, 225, 270, 315]:  # 8 directions
-            sample_lat, sample_lon = GlobalRadarService.get_point_at_distance(lat, lon, radius_km, bearing)
-            sample_points.append((sample_lat, sample_lon))
-
-        max_intensity = 0
-        rain_detected = False
-
-        for sample_lat, sample_lon in sample_points:
-            try:
-                # Calculate tile coordinates
-                tile_x, tile_y = GlobalRadarService.lat_lon_to_tile(sample_lat, sample_lon, GlobalRadarService.ZOOM_LEVEL)
-
-                # Build tile URL
-                tile_url = f"{host}{path}/256/{GlobalRadarService.ZOOM_LEVEL}/{tile_x}/{tile_y}/2/1_0.png"
-
-                # Fetch the tile (with caching in requests)
-                tile_response = requests.get(tile_url, timeout=5)
-                if tile_response.status_code != 200:
-                    continue
-
-                # Load image
-                img = Image.open(BytesIO(tile_response.content))
-                if img.mode != 'RGBA':
-                    img = img.convert('RGBA')
-
-                # Get pixel coordinates within the tile
-                pixel_x, pixel_y = GlobalRadarService.lat_lon_to_pixel_in_tile(
-                    sample_lat, sample_lon, GlobalRadarService.ZOOM_LEVEL
-                )
-
-                # Check if coordinates are valid
-                if not (0 <= pixel_x < img.width and 0 <= pixel_y < img.height):
-                    continue
-
-                # Check a 3x3 area around the sample point
-                for dx in range(-1, 2):
-                    for dy in range(-1, 2):
-                        check_x = pixel_x + dx
-                        check_y = pixel_y + dy
-
-                        if not (0 <= check_x < img.width and 0 <= check_y < img.height):
-                            continue
-
-                        r, g, b, a = img.getpixel((check_x, check_y))
-
-                        if a > GlobalRadarService.MIN_INTENSITY_THRESHOLD:
-                            rain_detected = True
-                            max_intensity = max(max_intensity, a)
-
-            except Exception as e:
-                # Skip this sample point on error
-                continue
-
-        return (rain_detected, max_intensity)
+    def fetch_tile_dbz(host: str, path: str, x: int, y: int, stats: dict) -> np.ndarray:
+        """Decoded dBZ array for one tile (cached; frames never change once published)."""
+        s = GlobalRadarService
+        key = (path, s.ZOOM_LEVEL, s.TILE_SIZE, x, y)
+        if key in s._tile_cache:
+            s._tile_cache.move_to_end(key)
+            return s._tile_cache[key]
+        stats['http_requests'] += 1
+        response = requests.get(s.tile_url(host, path, x, y), timeout=s.HTTP_TIMEOUT)
+        if response.status_code != 200:
+            raise RadarFetchError(f"tile {x}/{y} HTTP {response.status_code}")
+        img = Image.open(BytesIO(response.content)).convert('RGBA')
+        if img.size != (s.TILE_SIZE, s.TILE_SIZE):
+            raise RadarFetchError(f"tile {x}/{y} unexpected size {img.size}")
+        dbz, unknown = detection.decode_rgba(np.asarray(img))
+        if unknown > s.MAX_UNKNOWN_PIXEL_FRACTION * dbz.size:
+            # e.g. the "Zoom Level Not Supported" placeholder, served with HTTP 200
+            raise RadarFetchError(f"tile {x}/{y} is not radar data ({unknown} unknown colours)")
+        s._tile_cache[key] = dbz
+        while len(s._tile_cache) > s.CACHE_TILES:
+            s._tile_cache.popitem(last=False)
+        return dbz
 
     @staticmethod
-    def check_rain_at_location(lat: float, lon: float) -> Optional[Dict]:
+    def mosaic_window(lat: float, lon: float) -> tuple:
+        """Global-pixel window (gx0, gy0, height, width) covering ANALYSIS_RADIUS_KM around the location."""
+        s = GlobalRadarService
+        cx, cy = detection.lat_lon_to_global_px(lat, lon, s.ZOOM_LEVEL, s.TILE_SIZE)
+        km_per_px = 40075.016 * math.cos(math.radians(lat)) / ((2 ** s.ZOOM_LEVEL) * s.TILE_SIZE)
+        r = math.ceil(detection.ANALYSIS_RADIUS_KM / km_per_px) + 2
+        gx0, gy0 = int(cx) - r, int(cy) - r
+        return gx0, gy0, 2 * r + 1, 2 * r + 1
+
+    @staticmethod
+    def fetch_mosaic(host: str, path: str, window: tuple, stats: dict) -> np.ndarray:
+        """Assemble the dBZ window from the (few) tiles it overlaps."""
+        s = GlobalRadarService
+        gx0, gy0, h, w = window
+        out = np.full((h, w), np.nan, dtype=np.float32)
+        ts = s.TILE_SIZE
+        for ty in range(gy0 // ts, (gy0 + h - 1) // ts + 1):
+            for tx in range(gx0 // ts, (gx0 + w - 1) // ts + 1):
+                tile = s.fetch_tile_dbz(host, path, tx, ty, stats)
+                # overlap of this tile with the window, in global pixels
+                x0, x1 = max(gx0, tx * ts), min(gx0 + w, (tx + 1) * ts)
+                y0, y1 = max(gy0, ty * ts), min(gy0 + h, (ty + 1) * ts)
+                out[y0 - gy0:y1 - gy0, x0 - gx0:x1 - gx0] = tile[y0 - ty * ts:y1 - ty * ts, x0 - tx * ts:x1 - tx * ts]
+        return out
+
+    # ------------------------------------------------------------- analysis
+    @staticmethod
+    def analyze_location(lat: float, lon: float) -> dict:
         """
-        Check if rain is present or approaching a location using predictive analysis
-        Returns dict with rain info or None if no rain detected/predicted
+        Full analysis. Never raises; always returns diagnostics including
+        should_alert, reason, per-frame stats and the contract fields.
         """
+        s = GlobalRadarService
+        started = time.monotonic()
+        stats = {'http_requests': 0}
+        base = {'source': s.SOURCE, 'lat': lat, 'lon': lon, 'checked_at': detection.utcnow().isoformat(),
+                'zoom': s.ZOOM_LEVEL, 'tile_size': s.TILE_SIZE, 'thresholds': dict(detection.THRESHOLDS),
+                'frames': [], 'errors': []}
         try:
-            # Get radar data
-            response = requests.get(GlobalRadarService.API_URL, timeout=10)
-            if response.status_code != 200:
-                print(f"[GlobalRadar] API returned status {response.status_code}")
-                return None
+            stats['http_requests'] += 1
+            host, frame_list = s.fetch_frame_list()
+            if not frame_list:
+                raise RadarFetchError("API returned no radar frames")
 
-            data = response.json()
-            radar_frames = data.get('radar', {}).get('past', [])
+            window = s.mosaic_window(lat, lon)
+            dist, bearing = detection.distance_bearing_grid(lat, lon, s.ZOOM_LEVEL, s.TILE_SIZE, *window)
 
-            if not radar_frames:
-                print("[GlobalRadar] No radar frames available")
-                return None
-
-            host = data.get('host', 'https://tilecache.rainviewer.com')
-
-            # Take the last N frames for analysis
-            frames_to_check = radar_frames[-GlobalRadarService.FRAMES_TO_ANALYZE:]
-
-            print(f"[GlobalRadar] Analyzing {len(frames_to_check)} frames for location ({lat:.4f}, {lon:.4f})")
-
-            # Track rain distance over time
-            distance_history = []  # [(timestamp, distance_km, intensity)]
-
-            for frame in frames_to_check:
-                path = frame.get('path')
-                timestamp = frame.get('time')
-
-                if not path or not timestamp:
+            # Fetch newest first so a slow/failing server still yields the most recent data.
+            grids = {}
+            failures = 0
+            for frame in reversed(frame_list):
+                if failures >= s.MAX_CONSECUTIVE_FAILURES or time.monotonic() - started > s.TIME_BUDGET_S:
+                    grids[frame['time']] = 'skipped (time budget / repeated failures)'
                     continue
+                try:
+                    grids[frame['time']] = s.fetch_mosaic(host, frame['path'], window, stats)
+                    failures = 0
+                except Exception as e:  # noqa: BLE001 - network, decode, placeholder tile...
+                    failures += 1
+                    grids[frame['time']] = f"{type(e).__name__}: {e}"
+                    base['errors'].append(f"frame {frame['time']}: {e}")
 
-                # Check each radius zone
-                min_distance = None
-                max_intensity_at_distance = 0
-
-                for radius in GlobalRadarService.CHECK_RADIUS_KM:
-                    rain_detected, intensity = GlobalRadarService.check_rain_in_radius(
-                        lat, lon, radius, host, path
-                    )
-
-                    if rain_detected:
-                        min_distance = radius
-                        max_intensity_at_distance = intensity
-                        break  # Found rain, no need to check larger radii
-
-                if min_distance is not None:
-                    distance_history.append((timestamp, min_distance, max_intensity_at_distance))
-                    time_str = datetime.fromtimestamp(timestamp).strftime('%H:%M')
-                    print(f"[GlobalRadar]   Frame {time_str}: Rain at {min_distance}km, intensity={max_intensity_at_distance}")
-
-            # Analyze movement pattern
-            if len(distance_history) == 0:
-                print("[GlobalRadar] No rain detected in any frame")
-                return None
-
-            # If rain is already at location (distance = 0 or very close)
-            latest_distance = distance_history[-1][1]
-            latest_intensity = distance_history[-1][2]
-
-            if latest_distance <= 5:
-                print(f"[GlobalRadar] ✓ Rain currently at location (distance: {latest_distance}km)")
-                return {
-                    'minutes_until_rain': 0,
-                    'expected_at': datetime.utcnow(),
-                    'intensity': latest_intensity,
-                    'confidence': 'high',
-                    'current_distance_km': latest_distance,
-                    'approaching': True
-                }
-
-            # Check if rain is approaching OR already close
-            if len(distance_history) >= 2:
-                oldest_distance = distance_history[0][1]
-                oldest_time = distance_history[0][0]
-                latest_time = distance_history[-1][0]
-
-                distance_change = oldest_distance - latest_distance  # Positive if approaching
-                time_change_minutes = (latest_time - oldest_time) / 60.0
-
-                # If rain is close (within 10km), ALWAYS alert regardless of direction
-                if latest_distance <= 10:
-                    print(f"[GlobalRadar] ✓ Rain detected nearby: {latest_distance}km away, intensity={latest_intensity}")
-                    # Estimate ETA based on typical storm movement (30-60 km/h)
-                    eta_minutes = int(latest_distance * 1.5)  # Assume ~40 km/h average
-                    return {
-                        'minutes_until_rain': eta_minutes,
-                        'expected_at': datetime.utcnow() + timedelta(minutes=eta_minutes),
-                        'intensity': latest_intensity,
-                        'confidence': 'high' if latest_distance <= 10 else 'medium',
-                        'current_distance_km': latest_distance,
-                        'approaching': distance_change > 0
-                    }
-
-                if distance_change > 0 and time_change_minutes > 0:
-                    # Rain is approaching!
-                    velocity_km_per_min = distance_change / time_change_minutes
-                    velocity_km_per_hour = velocity_km_per_min * 60
-
-                    # Calculate ETA
-                    if velocity_km_per_min > 0:
-                        eta_minutes = latest_distance / velocity_km_per_min
-                    else:
-                        eta_minutes = 999  # Very far away
-
-                    print(f"[GlobalRadar] ✓ Rain approaching: {latest_distance}km away, moving at {velocity_km_per_hour:.1f} km/h")
-                    print(f"[GlobalRadar]   ETA: {eta_minutes:.0f} minutes")
-
-                    # Trigger alert if rain will arrive within threshold
-                    if eta_minutes <= GlobalRadarService.PREDICTION_THRESHOLD_MINUTES:
-                        return {
-                            'minutes_until_rain': int(eta_minutes),
-                            'expected_at': datetime.utcnow() + timedelta(minutes=eta_minutes),
-                            'intensity': latest_intensity,
-                            'confidence': 'high' if eta_minutes <= 10 else 'medium',
-                            'current_distance_km': latest_distance,
-                            'velocity_kmh': velocity_km_per_hour,
-                            'approaching': True
-                        }
-                    else:
-                        print(f"[GlobalRadar] Rain is approaching but ETA ({eta_minutes:.0f} min) > threshold ({GlobalRadarService.PREDICTION_THRESHOLD_MINUTES} min)")
-                        return None
+            arrays = [g for g in grids.values() if isinstance(g, np.ndarray)]
+            clutter = detection.clutter_mask(arrays)
+            frames = []
+            for frame in frame_list:
+                g = grids[frame['time']]
+                entry = {'epoch': frame['time'], 'time': detection.epoch_to_utc(frame['time']).isoformat()}
+                if isinstance(g, np.ndarray):
+                    entry.update(detection.frame_stats(g, dist, bearing, clutter))
                 else:
-                    print(f"[GlobalRadar] Rain detected at {latest_distance}km but moving away (distance_change: {distance_change:.1f}km)")
-                    return None
-            else:
-                # Only one frame with rain detected
-                print(f"[GlobalRadar] Rain detected at {latest_distance}km but not enough history to determine movement")
+                    entry['error'] = g
+                frames.append(entry)
 
-                # If rain is close, alert anyway
-                if latest_distance <= 10:
-                    return {
-                        'minutes_until_rain': 5,
-                        'expected_at': datetime.utcnow() + timedelta(minutes=5),
-                        'intensity': latest_intensity,
-                        'confidence': 'medium',
-                        'current_distance_km': latest_distance,
-                        'approaching': False
-                    }
+            result = detection.decide(frames)
+            result.update(base)
+            result['frames'] = frames
+            result['clutter_px'] = int(clutter.sum()) if clutter is not None else None
+        except Exception as e:  # noqa: BLE001 - a radar failure must never crash the job
+            result = detection.decide([])
+            result.update(base)
+            result['reason'] = f"radar check failed: {type(e).__name__}: {e}"
+            result['errors'].append(result['reason'])
+        result['http_requests'] = stats['http_requests']
+        result['elapsed_s'] = round(time.monotonic() - started, 2)
+        s._log(result)
+        return result
 
-                return None
+    @staticmethod
+    def _log(result: dict):
+        frames = [f for f in result.get('frames', []) if not f.get('error')]
+        trend = ' '.join('-' if f['nearest_km'] is None else f"{f['nearest_km']:.0f}" for f in frames[-6:])
+        verdict = 'ALERT' if result['should_alert'] else 'no alert'
+        print(f"[GlobalRadar] ({result['lat']:.4f}, {result['lon']:.4f}) {verdict}: {result['reason']} | "
+              f"nearest km (old->new): [{trend}] | max {result.get('max_dbz')} dBZ | "
+              f"{result['http_requests']} req, {result['elapsed_s']}s")
+        for err in result.get('errors', [])[:3]:
+            print(f"[GlobalRadar]   error: {err}")
 
-        except Exception as e:
-            print(f"[GlobalRadar] Error checking location: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+    @staticmethod
+    def check_rain_at_location(lat: float, lon: float) -> dict | None:
+        """
+        Backward-compatible wrapper: the diagnostics dict when an alert is
+        warranted (rain at the location or approaching within the ETA window),
+        else None. Keys: minutes_until_rain, expected_at (naive UTC), intensity
+        (dBZ), confidence, current_distance_km, approaching, velocity_kmh,
+        bearing_deg, direction, max_dbz, frames, source (+ diagnostics).
+        """
+        result = GlobalRadarService.analyze_location(lat, lon)
+        return result if result['should_alert'] else None
