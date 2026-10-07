@@ -4,7 +4,24 @@
 {% block window_title %}Notification Settings{% endblock %}
 
 {% block content %}
-<form id="settings-form">
+<fieldset>
+    <legend>Configured via .env</legend>
+    {% if cfg.slack_from_env or cfg.telegram_from_env or env_channels['Public base URL'] %}
+    <ul style="margin: 0; padding-left: 20px;">
+        {% for name, value in env_channels.items() %}
+        {% if value %}<li>{{ name }}: <code>{{ value }}</code></li>{% endif %}
+        {% endfor %}
+    </ul>
+    {% else %}
+    <small style="color: #666;">Nothing set. Copy <code>.env.example</code> to <code>.env</code> (or run <code>scripts/telegram_setup.py</code>).</small>
+    {% endif %}
+    <small style="color: #666; display: block; margin-top: 4px;">
+        Values in .env override the fields below, and a channel is enabled as soon as its variables are set.
+        Active: Slack {{ 'on' if cfg.slack_enabled else 'off' }}, Telegram {{ 'on' if cfg.telegram_enabled else 'off' }}.
+    </small>
+</fieldset>
+
+<form id="settings-form" class="mt-2">
     <!-- Slack Settings -->
     <fieldset>
         <legend>
@@ -16,8 +33,8 @@
         <div class="form-group">
             <label for="slack_webhook_url">Webhook URL:</label>
             <input type="text" id="slack_webhook_url" name="slack_webhook_url"
-                   value="{{ settings.slack_webhook_url or '' }}"
-                   placeholder="https://hooks.slack.com/services/...">
+                   value=""
+                   placeholder="{{ '(saved - leave blank to keep)' if settings.slack_webhook_url else 'https://hooks.slack.com/services/...' }}">
             <small style="color: #666; display: block; margin-top: 4px;">
                 Get webhook URL from Slack: Workspace Settings → Apps → Incoming Webhooks
             </small>
@@ -35,8 +52,8 @@
         <div class="form-group">
             <label for="telegram_bot_token">Bot Token:</label>
             <input type="text" id="telegram_bot_token" name="telegram_bot_token"
-                   value="{{ settings.telegram_bot_token or '' }}"
-                   placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+                   value=""
+                   placeholder="{{ '(saved - leave blank to keep)' if settings.telegram_bot_token else '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11' }}">
         </div>
         <div class="form-group">
             <label for="telegram_chat_id">Chat ID:</label>
@@ -44,7 +61,7 @@
                    value="{{ settings.telegram_chat_id or '' }}"
                    placeholder="123456789">
             <small style="color: #666; display: block; margin-top: 4px;">
-                Create bot with @BotFather, get chat ID from @userinfobot
+                Easiest: run scripts/telegram_setup.py (creates the .env entries and finds the chat ID)
             </small>
         </div>
     </fieldset>
@@ -83,8 +100,8 @@
         <div class="form-group">
             <label for="email_smtp_password">SMTP Password:</label>
             <input type="password" id="email_smtp_password" name="email_smtp_password"
-                   value="{{ settings.email_smtp_password or '' }}"
-                   placeholder="App password (not your regular password)">
+                   value=""
+                   placeholder="{{ '(saved - leave blank to keep)' if settings.email_smtp_password else 'App password (not your regular password)' }}">
             <small style="color: #666; display: block; margin-top: 4px;">
                 Gmail: Use App Password from Google Account settings
             </small>

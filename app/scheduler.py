@@ -143,6 +143,15 @@ def fetch_radar_images():
         RadarService.cleanup_old_images()
 
 
+def poll_telegram():
+    """Record Telegram feedback-button taps (✅/❌) into Alert.user_feedback"""
+    try:
+        with app_instance.app_context():
+            NotificationService.poll_telegram_updates()
+    except Exception as e:
+        print(f"[Scheduler] Telegram poll error: {e}")
+
+
 def start_scheduler(app):
     """Start the background scheduler"""
     global app_instance
@@ -168,6 +177,17 @@ def start_scheduler(app):
             id='fetch_radar',
             name='Fetch radar images',
             replace_existing=True
+        )
+
+        # Poll Telegram for feedback button taps (long-poll 10s, so ~continuous)
+        scheduler.add_job(
+            func=poll_telegram,
+            trigger=IntervalTrigger(seconds=15),
+            id='poll_telegram',
+            name='Poll Telegram feedback',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True
         )
 
         # Start the scheduler FIRST
