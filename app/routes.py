@@ -7,8 +7,9 @@ from app.weather import WeatherService
 from app.notifications import NotificationService
 from app import config
 from app.radar import RadarService
+from app import capture
 from app.ims_radar import IMSRadarService
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 
 
@@ -34,13 +35,22 @@ def register_routes(app):
         alerts = Alert.query.filter_by(dismissed=False).order_by(Alert.created_at.desc()).all()
         return render_template('index.html', locations=locations, alerts=alerts)
 
+    @app.template_filter('localtime')
+    def localtime_filter(dt, fmt='%Y-%m-%d %H:%M'):
+        """Naive UTC datetime -> server local time string"""
+        return dt.replace(tzinfo=timezone.utc).astimezone().strftime(fmt) if dt else ''
+
     @app.route('/review')
     def review():
-        """Alert review page - review all alerts from now forward with radar images"""
-        # Get all alerts from now onwards (not dismissed old ones)
-        # Order: current alerts first, then historical (newest first)
+        """Alert review page - every alert with its captured radar frames and detection summary"""
         alerts = Alert.query.order_by(Alert.created_at.desc()).all()
-        return render_template('review.html', alerts=alerts)
+        captures = {alert.id: capture.load_capture(alert.id) for alert in alerts}
+        return render_template('review.html', alerts=alerts, captures=captures)
+
+    @app.route('/alert-data/<int:alert_id>/<path:filename>')
+    def serve_alert_data(alert_id, filename):
+        """Serve a file from data/alerts/<alert_id>/ (frames, preview.png, detection.json)"""
+        return send_from_directory(os.path.join(capture.ALERTS_DIR, str(alert_id)), filename)
 
     # API Endpoints
 
@@ -395,9 +405,3 @@ def register_routes(app):
         radar_dir = RadarService.get_radar_directory()
         return send_from_directory(radar_dir, filename)
 
-    @app.route('/radar-feedback/<filename>')
-    def serve_feedback_image(filename):
-        """Serve a saved alert radar image"""
-        radar_dir = RadarService.get_radar_directory()
-        feedback_dir = os.path.join(radar_dir, 'alerts')
-        return send_from_directory(feedback_dir, filename)

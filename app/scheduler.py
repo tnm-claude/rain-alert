@@ -8,6 +8,7 @@ from app.models import db, Location, Alert, NotificationSettings
 from app.weather import WeatherService
 from app.notifications import NotificationService
 from app.radar import RadarService
+from app import capture
 from app.radar_global import GlobalRadarService
 from app import health
 from datetime import datetime, timedelta
@@ -47,6 +48,7 @@ def check_all_locations():
                     location.latitude,
                     location.longitude
                 )
+                capture.log_check(location, rain_info)  # one detection_checks row per location per check
 
                 if rain_info:
                     minutes_until = rain_info['minutes_until_rain']
@@ -97,17 +99,16 @@ def check_all_locations():
 
                         print(f"[Scheduler] Created alert: {message}")
 
-                        # Save last 30 minutes of radar images immediately when alert is created
-                        saved_images = RadarService.save_alert_radar_images(alert)
-                        if saved_images:
-                            alert.radar_images_saved = ','.join(saved_images)
-                            db.session.commit()
-                            print(f"[Scheduler] Saved {len(saved_images)} radar images for alert {alert.id}")
+                        # Save the 60 min of radar before the alert to data/alerts/<id>/ (bounded, never raises;
+                        # sets alert.radar_images_saved). preview.png in that dir is for notifications.
+                        alert_dir = capture.snapshot_alert(alert, rain_info)
 
                         # Send notifications
                         # settings may be None: channels configured only via .env still send
                         settings = NotificationSettings.query.first()
-                        NotificationService.send_alert(settings, message, alert)
+                        NotificationService.send_alert(
+                            settings, message, alert,
+                            image_path=capture.preview_path(alert_dir), diagnostics=rain_info)
                     else:
                         print(f"[Scheduler] Recent alert exists for this location (created {recent_alert.created_at}, waiting 30 min minimum)")
                 else:
@@ -123,22 +124,18 @@ def check_all_locations():
 
 
 def fetch_radar_images():
-    """Fetch latest radar image and cleanup old ones"""
+    """Refresh the rolling RainViewer buffer (<= 2 h, UTC names; fallback for alert capture)
+    and run the daily data/alerts + detection_checks prune"""
     try:
-        print(f"[Scheduler] Fetching radar images at {datetime.now()}")
-        success, filename, timestamp = RadarService.fetch_latest_radar_image()
-
-        if success:
-            print(f"[Scheduler] Successfully fetched radar image: {filename}")
+        if RadarService.fetch_all_radar_images():
             health.mark('radar_fetch')
-        else:
-            print("[Scheduler] No new radar images available")
-
     except Exception as e:
         print(f"[Scheduler] Error fetching radar images: {e}")
     finally:
         # Always cleanup old images, regardless of fetch outcome
         RadarService.cleanup_old_images()
+        with app_instance.app_context():
+            capture.maintenance_if_due()
 
 
 def poll_telegram():
