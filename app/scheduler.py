@@ -5,17 +5,18 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from app.models import db, Location, Alert, NotificationSettings
-from app.weather import WeatherService
 from app.notifications import NotificationService
 from app.radar import RadarService
+from app import capture
 from app.radar_global import GlobalRadarService
+from app import detection, health
 from datetime import datetime, timedelta
 import atexit
 import logging
 
 # Configure logging for scheduler
 logging.basicConfig()
-logging.getLogger('apscheduler').setLevel(logging.DEBUG)
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 scheduler = BackgroundScheduler()
 app_instance = None
@@ -41,45 +42,34 @@ def check_all_locations():
             try:
                 print(f"[Scheduler] Checking: {location.address} ({location.latitude:.4f}, {location.longitude:.4f})")
 
-                # Check if rain is present using global radar service
-                rain_info = GlobalRadarService.check_rain_at_location(
+                # Radar analysis: always returns diagnostics (should_alert, reason, per-frame stats)
+                diagnostics = GlobalRadarService.analyze_location(
                     location.latitude,
                     location.longitude
                 )
+                capture.log_check(location, diagnostics)  # one detection_checks row per location per check
+                rain_info = diagnostics if diagnostics.get('should_alert') else None
 
                 if rain_info:
                     minutes_until = rain_info['minutes_until_rain']
                     expected_at = rain_info['expected_at']
-                    intensity = rain_info['intensity']
-                    confidence = rain_info.get('confidence', 'medium')
-                    current_distance = rain_info.get('current_distance_km', 0)
-                    is_approaching = rain_info.get('approaching', False)
-                    velocity = rain_info.get('velocity_kmh', 0)
 
-                    print(f"[Scheduler] ✓ Rain detected: intensity={intensity}, confidence={confidence}, distance={current_distance}km")
+                    print(f"[Scheduler] ✓ Rain alert condition: {rain_info['reason']}")
 
-                    # Check if we have a recent alert (within last 30 minutes) for this location
-                    recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
-                    recent_alert = Alert.query.filter(
-                        Alert.location_id == location.id,
-                        Alert.dismissed == False,
-                        Alert.created_at >= recent_cutoff
-                    ).first()
+                    # Event-based suppression: one alert per rain event. A new alert fires only after
+                    # the area was clear of rain for a while (see detection.EVENT_CLEAR_*). Dismissed
+                    # alerts count too, so dismissing never causes an immediate re-alert.
+                    last_alert = Alert.query.filter(
+                        Alert.location_id == location.id
+                    ).order_by(Alert.created_at.desc()).first()
+                    new_event, event_reason = detection.is_new_event(
+                        diagnostics['frames'], last_alert.created_at if last_alert else None
+                    )
+                    diagnostics['event'] = event_reason
+                    recent_alert = None if new_event else last_alert
 
                     if not recent_alert:
-                        # Create new alert with predictive information
-                        intensity_label = "Heavy" if intensity > 150 else "Moderate" if intensity > 80 else "Light"
-
-                        if minutes_until == 0:
-                            # Rain is currently at location
-                            message = f"🌧️ {intensity_label} rain detected at {location.address} (NOW)"
-                        elif is_approaching and velocity > 0:
-                            # Rain is approaching with known velocity
-                            message = f"⚠️ {intensity_label} rain approaching {location.address} - ETA: {minutes_until} minutes ({current_distance:.0f}km away, moving {velocity:.0f} km/h)"
-                        else:
-                            # Rain detected nearby but movement unclear
-                            message = f"⚠️ {intensity_label} rain near {location.address} ({current_distance:.0f}km away)"
-
+                        message = detection.build_message(location.address, rain_info)
                         alert_threshold = minutes_until if minutes_until > 0 else 5
 
                         alert = Alert(
@@ -95,48 +85,52 @@ def check_all_locations():
 
                         print(f"[Scheduler] Created alert: {message}")
 
-                        # Save last 30 minutes of radar images immediately when alert is created
-                        saved_images = RadarService.save_alert_radar_images(alert)
-                        if saved_images:
-                            alert.radar_images_saved = ','.join(saved_images)
-                            db.session.commit()
-                            print(f"[Scheduler] Saved {len(saved_images)} radar images for alert {alert.id}")
+                        # Save the 60 min of radar before the alert to data/alerts/<id>/ (bounded, never raises;
+                        # sets alert.radar_images_saved). preview.png in that dir is for notifications.
+                        alert_dir = capture.snapshot_alert(alert, rain_info)
 
                         # Send notifications
+                        # settings may be None: channels configured only via .env still send
                         settings = NotificationSettings.query.first()
-                        if settings:
-                            NotificationService.send_alert(settings, message, alert)
-                        else:
-                            print("[Scheduler] No notification settings configured")
+                        NotificationService.send_alert(
+                            settings, message, alert,
+                            image_path=capture.preview_path(alert_dir), diagnostics=rain_info)
                     else:
-                        print(f"[Scheduler] Recent alert exists for this location (created {recent_alert.created_at}, waiting 30 min minimum)")
+                        print(f"[Scheduler] Suppressed: {event_reason}")
                 else:
-                    print(f"[Scheduler] No rain detected for this location")
+                    print(f"[Scheduler] No alert: {diagnostics['reason']}")
 
             except Exception as e:
                 print(f"[Scheduler] Error checking location {location.id}: {e}")
                 import traceback
                 traceback.print_exc()
 
-        print(f"[Scheduler] ========== Weather check completed ==========\n")
+        print("[Scheduler] ========== Weather check completed ==========\n")
+        health.mark('location_check')
 
 
 def fetch_radar_images():
-    """Fetch latest radar image and cleanup old ones"""
+    """Refresh the rolling RainViewer buffer (<= 2 h, UTC names; fallback for alert capture)
+    and run the daily data/alerts + detection_checks prune"""
     try:
-        print(f"[Scheduler] Fetching radar images at {datetime.now()}")
-        success, filename, timestamp = RadarService.fetch_latest_radar_image()
-
-        if success:
-            print(f"[Scheduler] Successfully fetched radar image: {filename}")
-        else:
-            print("[Scheduler] No new radar images available")
-
+        if RadarService.fetch_all_radar_images():
+            health.mark('radar_fetch')
     except Exception as e:
         print(f"[Scheduler] Error fetching radar images: {e}")
     finally:
         # Always cleanup old images, regardless of fetch outcome
         RadarService.cleanup_old_images()
+        with app_instance.app_context():
+            capture.maintenance_if_due()
+
+
+def poll_telegram():
+    """Record Telegram feedback-button taps (✅/❌) into Alert.user_feedback"""
+    try:
+        with app_instance.app_context():
+            NotificationService.poll_telegram_updates()
+    except Exception as e:
+        print(f"[Scheduler] Telegram poll error: {e}")
 
 
 def start_scheduler(app):
@@ -153,6 +147,7 @@ def start_scheduler(app):
             func=check_all_locations,
             trigger=IntervalTrigger(minutes=5),
             id='check_weather',
+            next_run_time=datetime.now() + timedelta(seconds=30),
             name='Check weather for all locations',
             replace_existing=True
         )
@@ -162,8 +157,20 @@ def start_scheduler(app):
             func=fetch_radar_images,
             trigger=IntervalTrigger(minutes=5),
             id='fetch_radar',
+            next_run_time=datetime.now() + timedelta(seconds=15),
             name='Fetch radar images',
             replace_existing=True
+        )
+
+        # Poll Telegram for feedback button taps (long-poll 10s, so ~continuous)
+        scheduler.add_job(
+            func=poll_telegram,
+            trigger=IntervalTrigger(seconds=15),
+            id='poll_telegram',
+            name='Poll Telegram feedback',
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True
         )
 
         # Start the scheduler FIRST
@@ -173,14 +180,6 @@ def start_scheduler(app):
         # Print scheduled jobs
         jobs = scheduler.get_jobs()
         print(f"[Scheduler] Scheduled jobs: {[job.id for job in jobs]}")
-
-        # Run initial checks after scheduler is started (in background to avoid blocking startup)
-        # The scheduler will run them on schedule anyway
-        # try:
-        #     fetch_radar_images()
-        #     check_all_locations()
-        # except Exception as e:
-        #     print(f"[Scheduler] Error in initial run: {e}")
 
         # Shut down scheduler on app exit
         atexit.register(lambda: scheduler.shutdown())

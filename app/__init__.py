@@ -3,12 +3,14 @@ Flask application factory for Rain Alert
 """
 from flask import Flask
 from app.models import db
+from app import config
 import os
 
 
 def create_app():
     """Create and configure Flask application"""
     app = Flask(__name__)
+    config.load_env()  # .env secrets (notifications); override DB settings
 
     # Configuration
     basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -27,6 +29,9 @@ def create_app():
     # Register routes
     from app.routes import register_routes
     register_routes(app)
+
+    from app import health
+    health.register(app)
 
     # Start background scheduler
     from app.scheduler import start_scheduler

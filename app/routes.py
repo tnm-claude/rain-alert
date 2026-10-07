@@ -1,13 +1,28 @@
 """
 Web routes and API endpoints
 """
-from flask import render_template, request, jsonify, redirect, url_for, send_from_directory
+from flask import render_template, request, jsonify, send_from_directory, Response
 from app.models import db, Location, Alert, NotificationSettings
 from app.weather import WeatherService
 from app.notifications import NotificationService
+from app import config
 from app.radar import RadarService
-from datetime import datetime
+from app import capture
+from app.ims_radar import IMSRadarService
+from datetime import datetime, timedelta, timezone
 import os
+
+
+SECRET_FIELDS = ('slack_webhook_url', 'telegram_bot_token', 'email_smtp_password')
+
+
+def _public_settings(settings):
+    """Settings as JSON without secrets (a '<field>_set' flag instead)"""
+    data = settings.to_dict()
+    for field in SECRET_FIELDS:
+        data[f'{field}_set'] = bool(getattr(settings, field))
+        data.pop(field, None)
+    return data
 
 
 def register_routes(app):
@@ -20,13 +35,22 @@ def register_routes(app):
         alerts = Alert.query.filter_by(dismissed=False).order_by(Alert.created_at.desc()).all()
         return render_template('index.html', locations=locations, alerts=alerts)
 
+    @app.template_filter('localtime')
+    def localtime_filter(dt, fmt='%Y-%m-%d %H:%M'):
+        """Naive UTC datetime -> server local time string"""
+        return dt.replace(tzinfo=timezone.utc).astimezone().strftime(fmt) if dt else ''
+
     @app.route('/review')
     def review():
-        """Alert review page - review all alerts from now forward with radar images"""
-        # Get all alerts from now onwards (not dismissed old ones)
-        # Order: current alerts first, then historical (newest first)
+        """Alert review page - every alert with its captured radar frames and detection summary"""
         alerts = Alert.query.order_by(Alert.created_at.desc()).all()
-        return render_template('review.html', alerts=alerts)
+        captures = {alert.id: capture.load_capture(alert.id) for alert in alerts}
+        return render_template('review.html', alerts=alerts, captures=captures)
+
+    @app.route('/alert-data/<int:alert_id>/<path:filename>')
+    def serve_alert_data(alert_id, filename):
+        """Serve a file from data/alerts/<alert_id>/ (frames, preview.png, detection.json)"""
+        return send_from_directory(os.path.join(capture.ALERTS_DIR, str(alert_id)), filename)
 
     # API Endpoints
 
@@ -255,7 +279,14 @@ def register_routes(app):
             settings = NotificationSettings()
             db.session.add(settings)
             db.session.commit()
-        return render_template('settings.html', settings=settings)
+        cfg = NotificationService.effective_config(settings)
+        env_channels = {
+            'Slack webhook': config.mask(config.env('SLACK_WEBHOOK_URL')),
+            'Telegram bot token': config.mask(config.env('TELEGRAM_BOT_TOKEN')),
+            'Telegram chat ID': config.mask(config.env('TELEGRAM_CHAT_ID')),
+            'Public base URL': config.env('PUBLIC_BASE_URL'),
+        }
+        return render_template('settings.html', settings=settings, env_channels=env_channels, cfg=cfg)
 
     @app.route('/api/settings', methods=['GET', 'POST'])
     def api_settings():
@@ -266,7 +297,7 @@ def register_routes(app):
                 settings = NotificationSettings()
                 db.session.add(settings)
                 db.session.commit()
-            return jsonify(settings.to_dict()), 200
+            return jsonify(_public_settings(settings)), 200
 
         # POST - update settings
         data = request.get_json()
@@ -275,42 +306,46 @@ def register_routes(app):
             settings = NotificationSettings()
             db.session.add(settings)
 
+        # Secret fields are never sent to the browser, so a blank value means "keep the saved one"
+        def keep_if_blank(current, key):
+            return (data.get(key) or '').strip() or current
+
         # Update email settings
         settings.email_enabled = data.get('email_enabled', False)
         settings.email_address = data.get('email_address', '').strip() or None
         settings.email_smtp_server = data.get('email_smtp_server', '').strip() or None
         settings.email_smtp_port = data.get('email_smtp_port') or None
         settings.email_smtp_user = data.get('email_smtp_user', '').strip() or None
-        settings.email_smtp_password = data.get('email_smtp_password', '').strip() or None
+        settings.email_smtp_password = keep_if_blank(settings.email_smtp_password, 'email_smtp_password')
 
         # Update Slack settings
         settings.slack_enabled = data.get('slack_enabled', False)
-        settings.slack_webhook_url = data.get('slack_webhook_url', '').strip() or None
+        settings.slack_webhook_url = keep_if_blank(settings.slack_webhook_url, 'slack_webhook_url')
 
         # Update Telegram settings
         settings.telegram_enabled = data.get('telegram_enabled', False)
-        settings.telegram_bot_token = data.get('telegram_bot_token', '').strip() or None
+        settings.telegram_bot_token = keep_if_blank(settings.telegram_bot_token, 'telegram_bot_token')
         settings.telegram_chat_id = data.get('telegram_chat_id', '').strip() or None
 
         db.session.commit()
 
-        return jsonify({'success': True, 'settings': settings.to_dict()}), 200
+        return jsonify({'success': True, 'settings': _public_settings(settings)}), 200
 
     @app.route('/api/test-notifications', methods=['POST'])
     def api_test_notifications():
         """Send test notification to all configured channels"""
-        settings = NotificationSettings.query.first()
-        if not settings:
-            return jsonify({'error': 'No settings configured'}), 400
+        settings = NotificationSettings.query.first()  # may be None: channels can come from .env
 
         test_message = "🌧️ Test notification from Rain Alert - Your notifications are working!"
 
-        success = NotificationService.send_alert(settings, test_message)
+        results = NotificationService.send_alert(settings, test_message)
+        summary = ', '.join(f"{name}: {'OK' if ok else 'FAILED'}" for name, ok in results.items())
 
-        if success:
-            return jsonify({'success': True, 'message': 'Test notification sent!'}), 200
+        if results:
+            return jsonify({'success': True, 'message': f'Test notification sent! ({summary})', 'results': dict(results)}), 200
         else:
-            return jsonify({'error': 'No notification methods configured or all failed'}), 400
+            detail = f' ({summary})' if summary else ''
+            return jsonify({'error': f'No notification methods configured or all failed{detail}'}), 400
 
     @app.route('/api/test-alert', methods=['POST'])
     def api_test_alert():
@@ -333,8 +368,7 @@ def register_routes(app):
 
         # Send notification
         settings = NotificationSettings.query.first()
-        if settings:
-            NotificationService.send_alert(settings, test_alert.message, test_alert)
+        NotificationService.send_alert(settings, test_alert.message, test_alert)
 
         return jsonify({
             'success': True,
@@ -348,20 +382,26 @@ def register_routes(app):
         images = RadarService.get_available_images()
         return jsonify({'images': images}), 200
 
+    @app.route('/api/radar/ims', methods=['GET'])
+    def api_radar_ims():
+        """Latest IMS (Israel Meteorological Service) radar frames + overlay bounds"""
+        data = IMSRadarService.get_frames()
+        if not data:
+            return jsonify({'error': 'IMS radar unavailable'}), 502
+        return jsonify(data), 200
+
+    @app.route('/api/radar/ims/image/<directory>/<name>')
+    def api_radar_ims_image(directory, name):
+        """Proxy one IMS overlay image (frames are immutable, so cache hard)"""
+        image = IMSRadarService.get_image(directory, name)
+        if not image:
+            return jsonify({'error': 'Image not found'}), 404
+        body, content_type = image
+        return Response(body, mimetype=content_type, headers={'Cache-Control': 'public, max-age=86400'})
+
     @app.route('/radar/<filename>')
     def serve_radar_image(filename):
         """Serve a radar image file"""
         radar_dir = RadarService.get_radar_directory()
         return send_from_directory(radar_dir, filename)
 
-    @app.route('/radar-feedback/<filename>')
-    def serve_feedback_image(filename):
-        """Serve a saved alert radar image"""
-        radar_dir = RadarService.get_radar_directory()
-        feedback_dir = os.path.join(radar_dir, 'alerts')
-        return send_from_directory(feedback_dir, filename)
-
-    @app.route('/health')
-    def health():
-        """Health check endpoint"""
-        return jsonify({'status': 'ok'}), 200
