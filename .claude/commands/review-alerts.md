@@ -32,6 +32,10 @@ You are reviewing the rain alert system's recent behavior to diagnose false posi
   - Rain within 10km always triggered regardless of movement direction
   - Slack messages lacked a distinct title (now uses `header` block)
 
+- **Winter 2025-26 (#2):** no pre-alert radar was ever saved (55 alerts, 0 images): buffer files were
+  named in local time while `created_at` is UTC. Fixed in #10: all capture files use UTC names and
+  frames are fetched at alert time. Alerts before that have no `data/alerts/<id>/`.
+
 ## Diagnostic steps
 
 When the user reports unexpected alerts or silence, do the following in order:
@@ -56,6 +60,39 @@ Look for:
 - Bursts of alerts within the same 30-min window (cooldown bypass)
 - `user_feedback = 0` (false alarms) correlating with specific times/distances
 - Alerts with no follow-up feedback (could be true or false — ask user)
+
+### 2b. Look at what the detector saw (saved per alert)
+Every alert since #10 has `data/alerts/<alert_id>/` (`alerts.radar_images_saved` = `alerts/<id>`).
+All file names and JSON times are **UTC**:
+- `ims_<UTC>.png` / `rv_<UTC>.png`: IMS (5-min) and RainViewer (10-min) frames from the 60 min before
+  the alert, cropped to 120 km around the location, red marker = location, rings at 10/25/50 km
+- `ims_raw_*.png` (940px IMS overlay), `rv_raw_*.png` (512px z7 tile, colour scheme 0, ~265 km across,
+  centred on the location): unmodified source images for re-running detection offline
+- `w2d_<UTC>.png`: weather2day radar at alert time (not georeferenced)
+- `preview.png`: latest frame (sent with notifications); `detection.json`: diagnostics, thresholds,
+  location, alert row, file list and capture errors
+
+Open the frames with the Read tool (start with `preview.png`, then step through `ims_*.png`), or use
+the `/review` page, which animates them and shows the detection.json summary. Check: was there rain
+inside the 10/25 km rings, was it moving toward the marker, and do `detection.json` distance/ETA match
+the frames?
+
+### 2c. Per-check detection log (alerts and non-alerts)
+```bash
+sqlite3 data/rain_alert.db "
+SELECT checked_at, location_id, should_alert, reason, round(distance_km,1), max_dbz, intensity,
+       round(velocity_kmh), eta_minutes
+FROM detection_checks
+WHERE checked_at >= datetime('now', '-1 day')
+ORDER BY checked_at DESC LIMIT 50;"
+```
+One row per location per 5-min check (UTC, kept 180 days); `details` holds compact JSON of the scalar
+diagnostics. Join to alerts by `location_id` and time (`alerts.created_at` is within seconds of the
+check that triggered it). Use it to find near-misses (rain close but `should_alert=0`) and to test new
+thresholds against past checks.
+
+Storage: `data/alerts` is capped at 500 MB (oldest unlabelled alerts are pruned first, then the
+oldest labelled), so label alerts you want kept with ✓/✗.
 
 ### 3. Check notification settings
 ```bash
@@ -84,4 +121,5 @@ If re-alerting too fast → extend the cooldown in `scheduler.py` (`timedelta(mi
 - `app/radar_global.py` — detection logic
 - `app/scheduler.py` — cooldown, alert creation, notification dispatch
 - `app/notifications.py` — message format for each channel
-- `app/models.py` — Alert schema (especially `dismissed`, `user_feedback`, `radar_images_saved`)
+- `app/models.py` — Alert schema (especially `dismissed`, `user_feedback`, `radar_images_saved`) and `DetectionCheck`
+- `app/capture.py` — what is saved per alert, pruning, the per-check log

@@ -51,7 +51,7 @@ class Alert(db.Model):
     # User feedback for improving alert accuracy
     user_feedback = db.Column(db.Boolean, nullable=True)  # True=accurate, False=false alarm, None=no feedback
     feedback_timestamp = db.Column(db.DateTime, nullable=True)
-    radar_images_saved = db.Column(db.String(1000), nullable=True)  # Comma-separated list of saved image filenames
+    radar_images_saved = db.Column(db.String(1000), nullable=True)  # Capture dir relative to data/, e.g. "alerts/56"
 
     def is_slack_dismissed(self):
         """Check if alert is currently dismissed via Slack"""
@@ -71,6 +71,23 @@ class Alert(db.Model):
             'dismissed': self.dismissed,
             'created_at': self.created_at.isoformat()
         }
+
+
+class DetectionCheck(db.Model):
+    """One row per location per scheduler check, for offline tuning (pruned after 180 days)"""
+    __tablename__ = 'detection_checks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    checked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)  # UTC
+    location_id = db.Column(db.Integer, nullable=False, index=True)
+    should_alert = db.Column(db.Boolean, nullable=False)
+    reason = db.Column(db.String(200))
+    distance_km = db.Column(db.Float)
+    max_dbz = db.Column(db.Float)
+    intensity = db.Column(db.Float)
+    velocity_kmh = db.Column(db.Float)
+    eta_minutes = db.Column(db.Float)
+    details = db.Column(db.Text)  # compact JSON (< 1 KB), no per-frame pixel data
 
 
 class NotificationSettings(db.Model):

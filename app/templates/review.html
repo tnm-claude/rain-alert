@@ -18,7 +18,7 @@
 <fieldset>
     <legend>Alert Review - Training Data Collection</legend>
     <p style="margin-bottom: 12px; color: #666;">
-        Review all triggered alerts with their radar images. Mark each as accurate (✓ True) or false alarm (✗ False) to build training data for algorithm improvement.
+        Review all triggered alerts with the radar from the 60 minutes before each one. Mark each as accurate (✓ True) or false alarm (✗ False) to build training data for algorithm improvement. Times are UTC unless marked local. Unlabelled alerts are pruned first when saved data exceeds 500 MB.
     </p>
     {% if alerts %}
         <div style="display: flex; flex-direction: column; gap: 16px;">
@@ -30,7 +30,7 @@
                             {{ alert.message }}
                         </div>
                         <div style="font-size: 12px; color: #666;">
-                            Triggered: {{ alert.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                            Triggered: {{ alert.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC ({{ alert.created_at|localtime('%H:%M') }} local)
                             {% if not alert.dismissed %}
                                 <span style="color: #008000; font-weight: bold;">(ACTIVE)</span>
                             {% else %}
@@ -55,25 +55,62 @@
                     </div>
                 </div>
 
-                {% if alert.radar_images_saved %}
-                <div style="background: white; padding: 12px; border: 1px solid #808080;">
-                    <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Saved Radar Images (Last 30 minutes before alert):</div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;">
-                        {% set image_list = alert.radar_images_saved.split(',') %}
-                        {% for image_name in image_list %}
+                {% set cap = captures.get(alert.id) %}
+                {% if cap %}
+                <div style="background: white; padding: 12px; border: 1px solid #808080; font-size: 12px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 16px;">
                         <div style="text-align: center;">
-                            <img src="/radar-feedback/{{ image_name }}" alt="Radar" style="width: 100%; border: 1px solid #ccc;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                            <div style="display: none; background: #f0f0f0; padding: 8px; font-size: 10px;">Image not found</div>
-                            <div style="font-size: 10px; color: #666; margin-top: 4px;">
-                                {{ image_name.replace('alert_' + alert.id|string + '_radar_', '').replace('.png', '') }}
+                            <div style="font-weight: bold; margin-bottom: 4px;">Radar, 60 min before alert</div>
+                            {% if cap.preview or cap.anim %}
+                            <img id="anim-{{ alert.id }}" src="/alert-data/{{ alert.id }}/{{ cap.preview or cap.anim[-1][0] }}" alt="Radar" style="width: 320px; max-width: 100%; border: 1px solid #808080; display: block;">
+                            <div style="margin-top: 4px; display: flex; gap: 8px; align-items: center; justify-content: center;">
+                                {% if cap.anim|length > 1 %}
+                                <button class="button button-small" onclick="toggleAnim({{ alert.id }}, this)" data-frames='{{ cap.anim|map("first")|list|tojson }}' data-labels='{{ cap.anim|map("last")|list|tojson }}'>▶ Play</button>
+                                {% endif %}
+                                <span id="anim-label-{{ alert.id }}" style="color: #666;">{{ 'preview (latest frame)' if cap.preview else cap.anim[-1][1] ~ ' UTC' }}</span>
                             </div>
+                            {% else %}
+                            <div style="background: #f0f0f0; padding: 8px;">No frames saved</div>
+                            {% endif %}
+                        </div>
+                        <div style="flex: 1; min-width: 240px;">
+                            <div style="font-weight: bold; margin-bottom: 4px;">Detection</div>
+                            <table style="border-collapse: collapse;">
+                                {% for key, value in cap.summary.items() %}
+                                <tr><td style="padding: 1px 8px 1px 0; color: #666;">{{ key }}</td><td>{{ value }}</td></tr>
+                                {% else %}
+                                <tr><td style="color: #666;">No diagnostics recorded</td></tr>
+                                {% endfor %}
+                            </table>
+                            {% if cap.thresholds %}
+                            <div style="margin-top: 6px; color: #666;">Thresholds:
+                                {% for key, value in cap.thresholds.items() %}{{ key }}={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            </div>
+                            {% endif %}
+                            {% if cap.errors %}
+                            <div style="margin-top: 6px; color: #cc0000;">Capture issues: {{ cap.errors|join('; ') }}</div>
+                            {% endif %}
+                            <div style="margin-top: 6px; color: #666;">
+                                {{ cap.raw_count }} raw frames, {{ cap.size_kb }} KB
+                                {% if cap.has_json %} - <a href="/alert-data/{{ alert.id }}/detection.json" target="_blank" style="color: #00f;">detection.json</a>{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% for title, items in cap.strips %}
+                    <div style="font-weight: bold; margin: 8px 0 4px;">{{ title }} ({{ items|length }})</div>
+                    <div style="display: flex; gap: 4px; overflow-x: auto;">
+                        {% for name, label in items %}
+                        <div style="text-align: center; flex: none;">
+                            <a href="/alert-data/{{ alert.id }}/{{ name }}" target="_blank"><img src="/alert-data/{{ alert.id }}/{{ name }}" loading="lazy" alt="{{ label }}" style="width: 90px; border: 1px solid #ccc;"></a>
+                            <div style="font-size: 10px; color: #666;">{{ label }}</div>
                         </div>
                         {% endfor %}
                     </div>
+                    {% endfor %}
                 </div>
                 {% else %}
                 <div style="background: #f0f0f0; padding: 12px; border: 1px solid #808080; color: #666; font-size: 12px;">
-                    No radar images saved for this alert.
+                    No radar data saved for this alert.
                 </div>
                 {% endif %}
             </div>
@@ -128,6 +165,31 @@ document.getElementById('menu-file').addEventListener('mouseenter', function() {
 
 // Close menus when clicking outside
 document.addEventListener('click', closeMenus);
+
+// Radar animation per alert
+const animTimers = {};
+
+function toggleAnim(alertId, button) {
+    if (animTimers[alertId]) {
+        clearInterval(animTimers[alertId]);
+        delete animTimers[alertId];
+        button.textContent = '▶ Play';
+        return;
+    }
+    const frames = JSON.parse(button.dataset.frames);
+    const labels = JSON.parse(button.dataset.labels);
+    const img = document.getElementById('anim-' + alertId);
+    const label = document.getElementById('anim-label-' + alertId);
+    let i = 0;
+    const show = () => {
+        img.src = '/alert-data/' + alertId + '/' + frames[i];
+        label.textContent = labels[i] + ' UTC (' + (i + 1) + '/' + frames.length + ')';
+        i = (i + 1) % frames.length;
+    };
+    show();
+    animTimers[alertId] = setInterval(show, 700);
+    button.textContent = '❚❚ Pause';
+}
 
 // Mark alert feedback
 function markAlertReview(alertId, isAccurate) {
