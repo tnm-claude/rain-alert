@@ -338,7 +338,7 @@ def test_snapshot_alert_writes_utc_frames_preview_and_json(israel_tz, dirs, monk
     with open(os.path.join(alert_dir, 'preview.png'), 'rb') as f, \
             open(os.path.join(alert_dir, ims_display[-1]), 'rb') as g:
         assert f.read() == g.read()  # preview = latest IMS frame
-    assert any('/0/0_0.png' in u for u in urls) and any('/2/1_0.png' in u for u in urls)
+    assert any('/2/0_0.png' in u for u in urls) and any('/2/1_0.png' in u for u in urls)
     assert any('/512/7/32.0828/34.8101/' in u for u in urls)  # centred on the location
     assert os.listdir(dirs.radar / 'basemap')  # basemap tiles cached
 

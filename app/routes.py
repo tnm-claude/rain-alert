@@ -1,7 +1,7 @@
 """
 Web routes and API endpoints
 """
-from flask import render_template, request, jsonify, redirect, url_for, send_from_directory, Response
+from flask import render_template, request, jsonify, send_from_directory, Response
 from app.models import db, Location, Alert, NotificationSettings
 from app.weather import WeatherService
 from app.notifications import NotificationService

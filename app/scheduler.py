@@ -5,12 +5,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from app.models import db, Location, Alert, NotificationSettings
-from app.weather import WeatherService
 from app.notifications import NotificationService
 from app.radar import RadarService
 from app import capture
 from app.radar_global import GlobalRadarService
-from app import health
+from app import detection, health
 from datetime import datetime, timedelta
 import atexit
 import logging
@@ -43,47 +42,34 @@ def check_all_locations():
             try:
                 print(f"[Scheduler] Checking: {location.address} ({location.latitude:.4f}, {location.longitude:.4f})")
 
-                # Check if rain is present using global radar service
-                rain_info = GlobalRadarService.check_rain_at_location(
+                # Radar analysis: always returns diagnostics (should_alert, reason, per-frame stats)
+                diagnostics = GlobalRadarService.analyze_location(
                     location.latitude,
                     location.longitude
                 )
-                capture.log_check(location, rain_info)  # one detection_checks row per location per check
+                capture.log_check(location, diagnostics)  # one detection_checks row per location per check
+                rain_info = diagnostics if diagnostics.get('should_alert') else None
 
                 if rain_info:
                     minutes_until = rain_info['minutes_until_rain']
                     expected_at = rain_info['expected_at']
-                    intensity = rain_info['intensity']
-                    confidence = rain_info.get('confidence', 'medium')
-                    current_distance = rain_info.get('current_distance_km', 0)
-                    is_approaching = rain_info.get('approaching', False)
-                    velocity = rain_info.get('velocity_kmh', 0)
 
-                    print(f"[Scheduler] ✓ Rain detected: intensity={intensity}, confidence={confidence}, distance={current_distance}km")
+                    print(f"[Scheduler] ✓ Rain alert condition: {rain_info['reason']}")
 
-                    # Check if we have a recent alert (within last 30 minutes) for this location
-                    # Note: check regardless of dismissed status — dismissing an alert must not
-                    # bypass the cooldown and cause an immediate re-alert.
-                    recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
-                    recent_alert = Alert.query.filter(
-                        Alert.location_id == location.id,
-                        Alert.created_at >= recent_cutoff
-                    ).first()
+                    # Event-based suppression: one alert per rain event. A new alert fires only after
+                    # the area was clear of rain for a while (see detection.EVENT_CLEAR_*). Dismissed
+                    # alerts count too, so dismissing never causes an immediate re-alert.
+                    last_alert = Alert.query.filter(
+                        Alert.location_id == location.id
+                    ).order_by(Alert.created_at.desc()).first()
+                    new_event, event_reason = detection.is_new_event(
+                        diagnostics['frames'], last_alert.created_at if last_alert else None
+                    )
+                    diagnostics['event'] = event_reason
+                    recent_alert = None if new_event else last_alert
 
                     if not recent_alert:
-                        # Create new alert with predictive information
-                        intensity_label = "Heavy" if intensity > 150 else "Moderate" if intensity > 80 else "Light"
-
-                        if minutes_until == 0:
-                            # Rain is currently at location
-                            message = f"🌧️ {intensity_label} rain detected at {location.address} (NOW)"
-                        elif is_approaching and velocity > 0:
-                            # Rain is approaching with known velocity
-                            message = f"⚠️ {intensity_label} rain approaching {location.address} - ETA: {minutes_until} minutes ({current_distance:.0f}km away, moving {velocity:.0f} km/h)"
-                        else:
-                            # Rain detected nearby but movement unclear
-                            message = f"⚠️ {intensity_label} rain near {location.address} ({current_distance:.0f}km away)"
-
+                        message = detection.build_message(location.address, rain_info)
                         alert_threshold = minutes_until if minutes_until > 0 else 5
 
                         alert = Alert(
@@ -110,16 +96,16 @@ def check_all_locations():
                             settings, message, alert,
                             image_path=capture.preview_path(alert_dir), diagnostics=rain_info)
                     else:
-                        print(f"[Scheduler] Recent alert exists for this location (created {recent_alert.created_at}, waiting 30 min minimum)")
+                        print(f"[Scheduler] Suppressed: {event_reason}")
                 else:
-                    print(f"[Scheduler] No rain detected for this location")
+                    print(f"[Scheduler] No alert: {diagnostics['reason']}")
 
             except Exception as e:
                 print(f"[Scheduler] Error checking location {location.id}: {e}")
                 import traceback
                 traceback.print_exc()
 
-        print(f"[Scheduler] ========== Weather check completed ==========\n")
+        print("[Scheduler] ========== Weather check completed ==========\n")
         health.mark('location_check')
 
 

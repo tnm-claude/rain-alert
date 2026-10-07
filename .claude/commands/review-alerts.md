@@ -66,7 +66,7 @@ Every alert since #10 has `data/alerts/<alert_id>/` (`alerts.radar_images_saved`
 All file names and JSON times are **UTC**:
 - `ims_<UTC>.png` / `rv_<UTC>.png`: IMS (5-min) and RainViewer (10-min) frames from the 60 min before
   the alert, cropped to 120 km around the location, red marker = location, rings at 10/25/50 km
-- `ims_raw_*.png` (940px IMS overlay), `rv_raw_*.png` (512px z7 tile, colour scheme 0, ~265 km across,
+- `ims_raw_*.png` (940px IMS overlay), `rv_raw_*.png` (512px z7 tile, scheme 2 unsmoothed (decode with app.detection), ~265 km across,
   centred on the location): unmodified source images for re-running detection offline
 - `w2d_<UTC>.png`: weather2day radar at alert time (not georeferenced)
 - `preview.png`: latest frame (sent with notifications); `detection.json`: diagnostics, thresholds,

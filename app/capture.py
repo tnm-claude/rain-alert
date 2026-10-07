@@ -52,7 +52,7 @@ DETAILS_MAX_CHARS = 1000                # detection_checks.details (ASCII JSON, 
 ZOOM = RadarService.ZOOM_LEVEL
 TILE_SIZE = RadarService.TILE_SIZE
 DISPLAY_SCHEME = '2/1_0'  # colour scheme 2 (display palette), smoothed, no snow
-RAW_SCHEME = '0/0_0'      # colour scheme 0, unsmoothed: the scheme that decodes to dBZ
+RAW_SCHEME = '2/0_0'      # scheme 2 unsmoothed: exact palette colours, decodable to dBZ via app.detection (the free API ignores scheme 0)
 CROP_KM = 120
 OUT_PX = 480
 RINGS_KM = (10, 25, 50)
@@ -408,7 +408,7 @@ def snapshot_alert(alert, diagnostics=None, alerts_dir=None, budget_s=TIME_BUDGE
       ims_<UTC>.png       IMS radar (5-min steps), CROP_KM around the location, with marker
       ims_raw_<UTC>.png   original IMS overlay (940x940, georeferenced by IMS_BOUNDS)
       rv_<UTC>.png        RainViewer display frames (scheme 2), CROP_KM around the location
-      rv_raw_<UTC>.png    RainViewer 512px tiles (scheme 0, dBZ-decodable), ~265 km across, centred
+      rv_raw_<UTC>.png    RainViewer 512px tiles (scheme 2 unsmoothed, dBZ-decodable), ~265 km across, centred
       w2d_<UTC>.png       latest weather2day radar image (not georeferenced)
       preview.png         latest display frame, IMS preferred (for notifications)
       detection.json      diagnostics, thresholds, location, alert row, file list, errors
