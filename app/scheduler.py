@@ -9,13 +9,14 @@ from app.weather import WeatherService
 from app.notifications import NotificationService
 from app.radar import RadarService
 from app.radar_global import GlobalRadarService
+from app import health
 from datetime import datetime, timedelta
 import atexit
 import logging
 
 # Configure logging for scheduler
 logging.basicConfig()
-logging.getLogger('apscheduler').setLevel(logging.DEBUG)
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 scheduler = BackgroundScheduler()
 app_instance = None
@@ -59,10 +60,11 @@ def check_all_locations():
                     print(f"[Scheduler] ✓ Rain detected: intensity={intensity}, confidence={confidence}, distance={current_distance}km")
 
                     # Check if we have a recent alert (within last 30 minutes) for this location
+                    # Note: check regardless of dismissed status — dismissing an alert must not
+                    # bypass the cooldown and cause an immediate re-alert.
                     recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
                     recent_alert = Alert.query.filter(
                         Alert.location_id == location.id,
-                        Alert.dismissed == False,
                         Alert.created_at >= recent_cutoff
                     ).first()
 
@@ -119,6 +121,7 @@ def check_all_locations():
                 traceback.print_exc()
 
         print(f"[Scheduler] ========== Weather check completed ==========\n")
+        health.mark('location_check')
 
 
 def fetch_radar_images():
@@ -129,6 +132,7 @@ def fetch_radar_images():
 
         if success:
             print(f"[Scheduler] Successfully fetched radar image: {filename}")
+            health.mark('radar_fetch')
         else:
             print("[Scheduler] No new radar images available")
 

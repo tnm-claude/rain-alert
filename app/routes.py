@@ -360,8 +360,3 @@ def register_routes(app):
         radar_dir = RadarService.get_radar_directory()
         feedback_dir = os.path.join(radar_dir, 'alerts')
         return send_from_directory(feedback_dir, filename)
-
-    @app.route('/health')
-    def health():
-        """Health check endpoint"""
-        return jsonify({'status': 'ok'}), 200
