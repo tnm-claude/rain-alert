@@ -17,10 +17,10 @@ class GlobalRadarService:
     ZOOM_LEVEL = 7  # Zoom level for radar tiles
 
     # Detection parameters
-    CHECK_RADIUS_KM = [5, 10, 15, 20, 25]  # Concentric circles to check (in km)
+    CHECK_RADIUS_KM = [5, 10, 15, 20]  # Concentric circles to check (in km)
     FRAMES_TO_ANALYZE = 4  # Last 4 frames (~40 minutes)
     PREDICTION_THRESHOLD_MINUTES = 30  # Alert if rain within 30 minutes (storms can move 90+ km/h)
-    MIN_INTENSITY_THRESHOLD = 50  # Minimum alpha value to consider as rain
+    MIN_INTENSITY_THRESHOLD = 120  # Minimum alpha value to consider as rain (higher = fewer false positives)
 
     @staticmethod
     def lat_lon_to_tile(lat: float, lon: float, zoom: int) -> tuple:
@@ -229,20 +229,6 @@ class GlobalRadarService:
 
                 distance_change = oldest_distance - latest_distance  # Positive if approaching
                 time_change_minutes = (latest_time - oldest_time) / 60.0
-
-                # If rain is close (within 10km), ALWAYS alert regardless of direction
-                if latest_distance <= 10:
-                    print(f"[GlobalRadar] ✓ Rain detected nearby: {latest_distance}km away, intensity={latest_intensity}")
-                    # Estimate ETA based on typical storm movement (30-60 km/h)
-                    eta_minutes = int(latest_distance * 1.5)  # Assume ~40 km/h average
-                    return {
-                        'minutes_until_rain': eta_minutes,
-                        'expected_at': datetime.utcnow() + timedelta(minutes=eta_minutes),
-                        'intensity': latest_intensity,
-                        'confidence': 'high' if latest_distance <= 10 else 'medium',
-                        'current_distance_km': latest_distance,
-                        'approaching': distance_change > 0
-                    }
 
                 if distance_change > 0 and time_change_minutes > 0:
                     # Rain is approaching!

@@ -30,3 +30,6 @@ __MACOSX/
 .idea/
 *.swp
 *.swo
+
+# Claude Code local settings
+.claude/settings.local.json
