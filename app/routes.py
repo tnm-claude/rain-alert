@@ -1,12 +1,13 @@
 """
 Web routes and API endpoints
 """
-from flask import render_template, request, jsonify, redirect, url_for, send_from_directory
+from flask import render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from app.models import db, Location, Alert, NotificationSettings
 from app.weather import WeatherService
 from app.notifications import NotificationService
 from app import config
 from app.radar import RadarService
+from app.ims_radar import IMSRadarService
 from datetime import datetime, timedelta
 import os
 
@@ -370,6 +371,23 @@ def register_routes(app):
         """Get list of available radar images"""
         images = RadarService.get_available_images()
         return jsonify({'images': images}), 200
+
+    @app.route('/api/radar/ims', methods=['GET'])
+    def api_radar_ims():
+        """Latest IMS (Israel Meteorological Service) radar frames + overlay bounds"""
+        data = IMSRadarService.get_frames()
+        if not data:
+            return jsonify({'error': 'IMS radar unavailable'}), 502
+        return jsonify(data), 200
+
+    @app.route('/api/radar/ims/image/<directory>/<name>')
+    def api_radar_ims_image(directory, name):
+        """Proxy one IMS overlay image (frames are immutable, so cache hard)"""
+        image = IMSRadarService.get_image(directory, name)
+        if not image:
+            return jsonify({'error': 'Image not found'}), 404
+        body, content_type = image
+        return Response(body, mimetype=content_type, headers={'Cache-Control': 'public, max-age=86400'})
 
     @app.route('/radar/<filename>')
     def serve_radar_image(filename):
