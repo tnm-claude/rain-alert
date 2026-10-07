@@ -28,6 +28,9 @@ def create_app():
     from app.routes import register_routes
     register_routes(app)
 
+    from app import health
+    health.register(app)
+
     # Start background scheduler
     from app.scheduler import start_scheduler
     start_scheduler(app)

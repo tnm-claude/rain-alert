@@ -9,13 +9,14 @@ from app.weather import WeatherService
 from app.notifications import NotificationService
 from app.radar import RadarService
 from app.radar_global import GlobalRadarService
+from app import health
 from datetime import datetime, timedelta
 import atexit
 import logging
 
 # Configure logging for scheduler
 logging.basicConfig()
-logging.getLogger('apscheduler').setLevel(logging.DEBUG)
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 scheduler = BackgroundScheduler()
 app_instance = None
@@ -120,6 +121,7 @@ def check_all_locations():
                 traceback.print_exc()
 
         print(f"[Scheduler] ========== Weather check completed ==========\n")
+        health.mark('location_check')
 
 
 def fetch_radar_images():
@@ -130,6 +132,7 @@ def fetch_radar_images():
 
         if success:
             print(f"[Scheduler] Successfully fetched radar image: {filename}")
+            health.mark('radar_fetch')
         else:
             print("[Scheduler] No new radar images available")
 

@@ -1,17 +1,3 @@
 #!/bin/bash
-# Restart Rain Alert server
-
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-echo "🔄 Restarting Rain Alert server..."
-echo ""
-
-# Stop server
-./stop.sh
-
-echo ""
-
-# Start server
-./start.sh
+# Thin wrapper: Rain Alert runs as a LaunchAgent (see scripts/install-service.sh)
+exec "$(dirname "$0")/scripts/install-service.sh" restart
