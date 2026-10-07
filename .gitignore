@@ -37,3 +37,6 @@ __MACOSX/
 
 # Local secrets (notification credentials)
 .env
+
+# Claude Code agent worktrees
+.claude/worktrees/

@@ -105,11 +105,9 @@ def check_all_locations():
                             print(f"[Scheduler] Saved {len(saved_images)} radar images for alert {alert.id}")
 
                         # Send notifications
+                        # settings may be None: channels configured only via .env still send
                         settings = NotificationSettings.query.first()
-                        if settings:
-                            NotificationService.send_alert(settings, message, alert)
-                        else:
-                            print("[Scheduler] No notification settings configured")
+                        NotificationService.send_alert(settings, message, alert)
                     else:
                         print(f"[Scheduler] Recent alert exists for this location (created {recent_alert.created_at}, waiting 30 min minimum)")
                 else:
@@ -166,6 +164,7 @@ def start_scheduler(app):
             func=check_all_locations,
             trigger=IntervalTrigger(minutes=5),
             id='check_weather',
+            next_run_time=datetime.now() + timedelta(seconds=30),
             name='Check weather for all locations',
             replace_existing=True
         )
@@ -175,6 +174,7 @@ def start_scheduler(app):
             func=fetch_radar_images,
             trigger=IntervalTrigger(minutes=5),
             id='fetch_radar',
+            next_run_time=datetime.now() + timedelta(seconds=15),
             name='Fetch radar images',
             replace_existing=True
         )
@@ -197,14 +197,6 @@ def start_scheduler(app):
         # Print scheduled jobs
         jobs = scheduler.get_jobs()
         print(f"[Scheduler] Scheduled jobs: {[job.id for job in jobs]}")
-
-        # Run initial checks after scheduler is started (in background to avoid blocking startup)
-        # The scheduler will run them on schedule anyway
-        # try:
-        #     fetch_radar_images()
-        #     check_all_locations()
-        # except Exception as e:
-        #     print(f"[Scheduler] Error in initial run: {e}")
 
         # Shut down scheduler on app exit
         atexit.register(lambda: scheduler.shutdown())
