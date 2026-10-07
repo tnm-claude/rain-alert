@@ -5,9 +5,22 @@ from flask import render_template, request, jsonify, redirect, url_for, send_fro
 from app.models import db, Location, Alert, NotificationSettings
 from app.weather import WeatherService
 from app.notifications import NotificationService
+from app import config
 from app.radar import RadarService
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+
+
+SECRET_FIELDS = ('slack_webhook_url', 'telegram_bot_token', 'email_smtp_password')
+
+
+def _public_settings(settings):
+    """Settings as JSON without secrets (a '<field>_set' flag instead)"""
+    data = settings.to_dict()
+    for field in SECRET_FIELDS:
+        data[f'{field}_set'] = bool(getattr(settings, field))
+        data.pop(field, None)
+    return data
 
 
 def register_routes(app):
@@ -255,7 +268,14 @@ def register_routes(app):
             settings = NotificationSettings()
             db.session.add(settings)
             db.session.commit()
-        return render_template('settings.html', settings=settings)
+        cfg = NotificationService.effective_config(settings)
+        env_channels = {
+            'Slack webhook': config.mask(config.env('SLACK_WEBHOOK_URL')),
+            'Telegram bot token': config.mask(config.env('TELEGRAM_BOT_TOKEN')),
+            'Telegram chat ID': config.mask(config.env('TELEGRAM_CHAT_ID')),
+            'Public base URL': config.env('PUBLIC_BASE_URL'),
+        }
+        return render_template('settings.html', settings=settings, env_channels=env_channels, cfg=cfg)
 
     @app.route('/api/settings', methods=['GET', 'POST'])
     def api_settings():
@@ -266,7 +286,7 @@ def register_routes(app):
                 settings = NotificationSettings()
                 db.session.add(settings)
                 db.session.commit()
-            return jsonify(settings.to_dict()), 200
+            return jsonify(_public_settings(settings)), 200
 
         # POST - update settings
         data = request.get_json()
@@ -275,42 +295,46 @@ def register_routes(app):
             settings = NotificationSettings()
             db.session.add(settings)
 
+        # Secret fields are never sent to the browser, so a blank value means "keep the saved one"
+        def keep_if_blank(current, key):
+            return (data.get(key) or '').strip() or current
+
         # Update email settings
         settings.email_enabled = data.get('email_enabled', False)
         settings.email_address = data.get('email_address', '').strip() or None
         settings.email_smtp_server = data.get('email_smtp_server', '').strip() or None
         settings.email_smtp_port = data.get('email_smtp_port') or None
         settings.email_smtp_user = data.get('email_smtp_user', '').strip() or None
-        settings.email_smtp_password = data.get('email_smtp_password', '').strip() or None
+        settings.email_smtp_password = keep_if_blank(settings.email_smtp_password, 'email_smtp_password')
 
         # Update Slack settings
         settings.slack_enabled = data.get('slack_enabled', False)
-        settings.slack_webhook_url = data.get('slack_webhook_url', '').strip() or None
+        settings.slack_webhook_url = keep_if_blank(settings.slack_webhook_url, 'slack_webhook_url')
 
         # Update Telegram settings
         settings.telegram_enabled = data.get('telegram_enabled', False)
-        settings.telegram_bot_token = data.get('telegram_bot_token', '').strip() or None
+        settings.telegram_bot_token = keep_if_blank(settings.telegram_bot_token, 'telegram_bot_token')
         settings.telegram_chat_id = data.get('telegram_chat_id', '').strip() or None
 
         db.session.commit()
 
-        return jsonify({'success': True, 'settings': settings.to_dict()}), 200
+        return jsonify({'success': True, 'settings': _public_settings(settings)}), 200
 
     @app.route('/api/test-notifications', methods=['POST'])
     def api_test_notifications():
         """Send test notification to all configured channels"""
-        settings = NotificationSettings.query.first()
-        if not settings:
-            return jsonify({'error': 'No settings configured'}), 400
+        settings = NotificationSettings.query.first()  # may be None: channels can come from .env
 
         test_message = "🌧️ Test notification from Rain Alert - Your notifications are working!"
 
-        success = NotificationService.send_alert(settings, test_message)
+        results = NotificationService.send_alert(settings, test_message)
+        summary = ', '.join(f"{name}: {'OK' if ok else 'FAILED'}" for name, ok in results.items())
 
-        if success:
-            return jsonify({'success': True, 'message': 'Test notification sent!'}), 200
+        if results:
+            return jsonify({'success': True, 'message': f'Test notification sent! ({summary})', 'results': dict(results)}), 200
         else:
-            return jsonify({'error': 'No notification methods configured or all failed'}), 400
+            detail = f' ({summary})' if summary else ''
+            return jsonify({'error': f'No notification methods configured or all failed{detail}'}), 400
 
     @app.route('/api/test-alert', methods=['POST'])
     def api_test_alert():
@@ -333,8 +357,7 @@ def register_routes(app):
 
         # Send notification
         settings = NotificationSettings.query.first()
-        if settings:
-            NotificationService.send_alert(settings, test_alert.message, test_alert)
+        NotificationService.send_alert(settings, test_alert.message, test_alert)
 
         return jsonify({
             'success': True,
