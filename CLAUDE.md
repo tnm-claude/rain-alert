@@ -72,7 +72,7 @@ Done, as PRs to `main` (merge **#1 first**; every task branch is based on it):
 | #20 | #10 (#2) | 60-min pre-alert capture, 500 MB cap, `detection_checks` |
 | #16 | #11 (#19) | `.env` secrets, Slack Block Kit, Telegram photo + feedback buttons |
 | #18 | #12 (#6) | UI: IMS radar tab, fixed RainViewer marker, removed broken iframes |
-| this | #13 | docs consolidation |
+| #23 | #13 | docs consolidation |
 
 The `integration/winter-2026` branch contains all of the above plus wiring commits. It has
 83 passing tests and an end-to-end live run (Troodos test location): alert created, 468 KB
